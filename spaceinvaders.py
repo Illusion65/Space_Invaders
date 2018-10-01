@@ -8,7 +8,7 @@ from os.path import abspath, dirname
 from random import randint, choice
 
 from pygame import display, draw, event, font, image, init, key,\
-    mixer, time, transform, Surface
+    mixer, time, transform, Rect, Surface
 from pygame.constants import QUIT, KEYDOWN, KEYUP,\
     K_ESCAPE, K_LEFT, K_RIGHT, K_SPACE
 from pygame.mixer import Sound
@@ -116,6 +116,7 @@ class Enemy(Sprite):
             self.image = self.images[self.index]
 
             self.timer += enemies.moveTime
+            enemies.changed = True
 
         game.screen.blit(self.image, self.rect)
 
@@ -132,6 +133,24 @@ class Enemy(Sprite):
         self.images.append(transform.scale(img2, (40, 35)))
 
 
+class EnemiesBlock(Sprite):
+    def __init__(self, *groups):
+        Sprite.__init__(self, *groups)
+        self.content = Group()
+        self.rect = Rect(0, 0, 0, 0)
+
+    def update_rect(self):
+        if self.content:
+            rects = [enemy.rect for enemy in self.content]
+            self.rect = rects[0].unionall(rects[1:])
+
+    def update(self, *args):
+        if not self.content:
+            self.kill()
+        if DEBUG:
+            draw.rect(game.screen, RED, self.rect, 1)
+
+
 class EnemiesGroup(Group):
     def __init__(self, columns, rows):
         Group.__init__(self)
@@ -141,6 +160,7 @@ class EnemiesGroup(Group):
         self.leftAddMove = 0
         self.rightAddMove = 0
         self.moveTime = 600
+        self.changed = False
         self._aliveColumns = list(range(columns))
         self._leftAliveColumn = 0
         self._rightAliveColumn = columns - 1
@@ -187,6 +207,7 @@ class EnemiesGroup(Group):
         if not self.enemies[enemy.row][enemy.column]:
             return  # Already dead
 
+        self.changed = True
         self.enemies[enemy.row][enemy.column] = None
         is_column_dead = self.is_column_dead(enemy.column)
         if is_column_dead:
@@ -510,12 +531,19 @@ class SpaceInvaders(object):
 
     def make_enemies(self):
         enemies = EnemiesGroup(10, 5)
+        blocks = [EnemiesBlock(self.allSprites),
+                  EnemiesBlock(self.allSprites),
+                  EnemiesBlock(self.allSprites),
+                  EnemiesBlock(self.allSprites),
+                  EnemiesBlock(self.allSprites)]
         for row in range(5):
             for column in range(10):
                 x = 157 + (column * 50)
                 y = self.enemyPosition + (row * 45)
-                Enemy(x, y, row, column, enemies, self.allSprites)
-
+                Enemy(x, y, row, column,
+                      enemies, self.allSprites, blocks[column / 2].content)
+        [_.update_rect() for _ in blocks]
+        self.enemiesBlocks = Group(blocks)
         self.enemies = enemies
 
     def make_enemies_shoot(self):
@@ -553,20 +581,27 @@ class SpaceInvaders(object):
     def check_collisions(self):
         groupcollide(self.bullets, self.enemyBullets, True, True)
 
-        # Don't kill B, because of on double hit second bullet fly through an
-        # explosion and kills next enemy also. And we need one dead enemy only.
-        enemiesdict = groupcollide(self.bullets, self.enemies,
-                                   True, False)
-        if enemiesdict:
-            for value in enemiesdict.values():
-                for enemy in value:
-                    if enemy.alive():
-                        enemy.kill()
-                        self.sounds['invaderkilled'].play()
-                        self.calculate_score(enemy.row)
-                        EnemyExplosion(enemy.rect.x, enemy.rect.y, enemy.row,
-                                       self.explosionsGroup)
-                        self.gameTimer = time.get_ticks()
+        blocksdict = groupcollide(self.bullets, self.enemiesBlocks,
+                                  False, False)
+        if blocksdict:
+            for value in blocksdict.values():
+                for block in value:
+                    # Don't kill B, because of on double hit second bullet fly
+                    # through an explosion and kills next enemy also.
+                    # And we need one dead enemy only.
+                    enemiesdict = groupcollide(self.bullets, block.content,
+                                               True, False)
+                    if enemiesdict:
+                        for value in enemiesdict.values():
+                            for enemy in value:
+                                if enemy.alive():
+                                    enemy.kill()
+                                    self.sounds['invaderkilled'].play()
+                                    self.calculate_score(enemy.row)
+                                    EnemyExplosion(enemy.rect.x, enemy.rect.y,
+                                                   enemy.row,
+                                                   self.explosionsGroup)
+                                    self.gameTimer = time.get_ticks()
 
         mysterydict = groupcollide(self.bullets, self.mysteryGroup,
                                    True, False)
@@ -611,8 +646,11 @@ class SpaceInvaders(object):
                                        True, True)
         self.check_collisions_blockers(self.enemyBullets, self.allBlockers,
                                        True, True)
-        self.check_collisions_blockers(self.enemies, self.allBlockers,
-                                       False, True)
+        if self.enemiesBlocks:
+            bottom = max([_.rect.bottom for _ in self.enemiesBlocks])
+            if bottom >= 450:
+                self.check_collisions_blockers(self.enemies, self.allBlockers,
+                                               False, True)
 
     def create_new_ship(self, create_ship, current_time):
         if create_ship and (current_time - self.shipTimer > 900):
@@ -681,6 +719,10 @@ class SpaceInvaders(object):
                     self.check_input()
                     keys = key.get_pressed()
                     self.allSprites.update(keys, current_time, self.enemies)
+                    if self.enemies.changed:
+                        # Re-calc union rect
+                        [_.update_rect() for _ in self.enemiesBlocks]
+                        self.enemies.changed = False
                     self.explosionsGroup.update(current_time)
                     self.check_collisions()
                     self.create_new_ship(self.makeNewShip, current_time)
