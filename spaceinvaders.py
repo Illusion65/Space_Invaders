@@ -7,13 +7,15 @@ import sys
 from os.path import abspath, dirname
 from random import randint, choice
 
-from pygame import display, event, font, image, init, key,\
+from pygame import display, draw, event, font, image, init, key,\
     mixer, time, transform, Surface
 from pygame.constants import QUIT, KEYDOWN, KEYUP,\
     K_ESCAPE, K_LEFT, K_RIGHT, K_SPACE
 from pygame.mixer import Sound
 from pygame.sprite import groupcollide, Group, Sprite
 
+
+DEBUG = True
 
 BASE_PATH = abspath(dirname(__file__))
 FONT_PATH = BASE_PATH + '/fonts/'
@@ -216,6 +218,21 @@ class Blocker(Sprite):
         game.screen.blit(self.image, self.rect)
 
 
+class BlockersBlock(Sprite):
+    def __init__(self, content, *groups):
+        Sprite.__init__(self, *groups)
+        if content:
+            self.content = content
+            rects = [blocker.rect for blocker in content]
+            self.rect = rects[0].unionall(rects[1:])
+
+    def update(self, *args):
+        for blocker in self.content:
+            blocker.update(*args)
+        if DEBUG:
+            draw.rect(game.screen, RED, self.rect, 1)
+
+
 class Mystery(Sprite):
     def __init__(self, *groups):
         Sprite.__init__(self, *groups)
@@ -332,6 +349,8 @@ class Text(object):
 
     def draw(self, surface):
         surface.blit(self.surface, self.rect)
+        if DEBUG:
+            draw.rect(game.screen, RED, self.rect, 1)
 
 
 class SpaceInvaders(object):
@@ -426,7 +445,7 @@ class SpaceInvaders(object):
                 x = 50 + offset + (column * 10)
                 y = 450 + (row * 10)
                 Blocker(x, y, 10, GREEN, blocker_group)
-        return blocker_group
+        return BlockersBlock(blocker_group)
 
     def reset_lives(self, lives):
         self.livesGroup.empty()
@@ -521,6 +540,16 @@ class SpaceInvaders(object):
         self.scoreText2 = Text(FONT, 20, str(self.score), GREEN, 85, 5)
         return score
 
+    @staticmethod
+    def check_collisions_blockers(group, blocks, killa, killb):
+        blocksdict = groupcollide(group, blocks, False, False)
+        if blocksdict:
+            for blocks in blocksdict.values():
+                for block in blocks:
+                    groupcollide(group, block.content, killa, killb)
+                    if killb and not block.content:
+                        block.kill()
+
     def check_collisions(self):
         groupcollide(self.bullets, self.enemyBullets, True, True)
 
@@ -578,9 +607,12 @@ class SpaceInvaders(object):
             self.gameOver = True
             self.startGame = False
 
-        groupcollide(self.bullets, self.allBlockers, True, True)
-        groupcollide(self.enemyBullets, self.allBlockers, True, True)
-        groupcollide(self.enemies, self.allBlockers, False, True)
+        self.check_collisions_blockers(self.bullets, self.allBlockers,
+                                       True, True)
+        self.check_collisions_blockers(self.enemyBullets, self.allBlockers,
+                                       True, True)
+        self.check_collisions_blockers(self.enemies, self.allBlockers,
+                                       False, True)
 
     def create_new_ship(self, create_ship, current_time):
         if create_ship and (current_time - self.shipTimer > 900):
