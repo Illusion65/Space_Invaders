@@ -239,6 +239,8 @@ class EnemiesGroup(Group):
 
 
 class Blocker(Sprite):
+    top = 450
+
     def __init__(self, x, y, size, color_, *groups):
         Sprite.__init__(self, *groups)
         self.image = Surface((size, size))
@@ -352,8 +354,7 @@ class ShipExplosion(Sprite):
 class Life(Sprite):
     def __init__(self, x, y, *groups):
         Sprite.__init__(self, *groups)
-        self.image = IMAGES['ship']
-        self.image = transform.scale(self.image, (23, 23))
+        self.image = transform.scale(IMAGES['ship'], (23, 23))
         self.rect = self.image.get_rect(topleft=(x, y))
 
     def update(self, *args):
@@ -361,10 +362,28 @@ class Life(Sprite):
 
 
 class Text(object):
-    def __init__(self, text_font, size, message, color_, xpos, ypos):
+    def __init__(self, text_font, size, message, color_, x, y):
         self.font = font.Font(text_font, size)
         self.surface = self.font.render(message, True, color_)
-        self.rect = self.surface.get_rect(topleft=(xpos, ypos))
+        self.rect = self.surface.get_rect(topleft=(x, y))
+
+    def draw(self, surface):
+        surface.blit(self.surface, self.rect)
+
+
+class CachedText(object):
+    cache = {}
+
+    def __init__(self, text_font, size, message, color_, x, y):
+        key_ = hash(message) + hash(size) + hash(color_)
+        if key_ in CachedText.cache:
+            self.surface = CachedText.cache[key_]
+        else:
+            self.font = font.Font(text_font, size)
+            self.surface = self.font.render(message, True, color_)
+            CachedText.cache[key_] = self.surface
+
+        self.rect = self.surface.get_rect(topleft=(x, y))
 
     def draw(self, surface):
         surface.blit(self.surface, self.rect)
@@ -457,7 +476,7 @@ class SpaceInvaders(object):
         for row in range(4):
             for column in range(9):
                 x = 50 + offset + (column * 10)
-                y = 450 + (row * 10)
+                y = Blocker.top + (row * 10)
                 Blocker(x, y, 10, GREEN, blocker_group)
         return BlockersBlock(blocker_group)
 
@@ -555,13 +574,11 @@ class SpaceInvaders(object):
 
     @staticmethod
     def check_collisions_blockers(group, blocks, killa, killb):
-        blocksdict = groupcollide(group, blocks, False, False)
-        if blocksdict:
-            for blocks in blocksdict.values():
-                for block in blocks:
-                    groupcollide(group, block.content, killa, killb)
-                    if killb and not block.content:
-                        block.kill()
+        blocks = groupcollide(blocks, group, False, False).keys()
+        for block in blocks:
+            groupcollide(group, block.content, killa, killb)
+            if killb and not block.content:
+                block.kill()
 
     def check_collisions(self):
         groupcollide(self.bullets, self.enemyBullets, True, True)
@@ -604,19 +621,22 @@ class SpaceInvaders(object):
             ShipExplosion(playerShip.rect.x, playerShip.rect.y,
                           self.explosionsGroup)
 
-        if groupcollide(self.enemies, self.playerGroup, True, True):
-            self.gameOver = True
-            self.startGame = False
+        if self.enemiesBlocks:
+            enemies_bottom = max([_.rect.bottom for _ in self.enemiesBlocks])
+        else:
+            enemies_bottom = 0
+        if enemies_bottom >= 540:
+            if groupcollide(self.enemies, self.playerGroup, True, True):
+                self.gameOver = True
+                self.startGame = False
 
         self.check_collisions_blockers(self.bullets, self.allBlockers,
                                        True, True)
         self.check_collisions_blockers(self.enemyBullets, self.allBlockers,
                                        True, True)
-        if self.enemiesBlocks:
-            bottom = max([_.rect.bottom for _ in self.enemiesBlocks])
-            if bottom >= 450:
-                self.check_collisions_blockers(self.enemies, self.allBlockers,
-                                               False, True)
+        if enemies_bottom >= Blocker.top:
+            self.check_collisions_blockers(self.enemies, self.allBlockers,
+                                           False, True)
 
     def main(self):
         while True:
@@ -689,9 +709,11 @@ class SpaceInvaders(object):
                     if self.should_exit(e):
                         sys.exit()
             if DEBUG:
-                fps = Text(FONT, 12, "FPS: " + str(int(self.clock.get_fps())),
-                           RED, 0, 587)
+                fps = CachedText(FONT, 12, "FPS:", RED, 0, 587)
+                fps2 = CachedText(FONT, 12,  str(int(self.clock.get_fps())),
+                            RED, 40, 587)
                 fps.draw(self.screen)
+                fps2.draw(self.screen)
             display.update()
             self.clock.tick(60)
 
