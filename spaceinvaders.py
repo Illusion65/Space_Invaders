@@ -568,14 +568,17 @@ class SpaceInvaders(object):
     def check_collisions(self):
         groupcollide(self.bullets, self.enemyBullets, True, True)
 
-        enemies = groupcollide(self.enemies, self.bullets,
-                               True, True).keys()
-        for enemy in enemies:
-            self.sounds['invaderkilled'].play()
-            self.inc_score(enemy.score)
-            EnemyExplosion(enemy.rect.x, enemy.rect.y, enemy.row,
-                           self.explosionsGroup)
-            self.gameTimer = time.get_ticks()
+        blocksdict = groupcollide(self.enemiesBlocks, self.bullets,
+                                  False, False).keys()
+        for block in blocksdict:
+            enemies = groupcollide(block.content, self.bullets,
+                                   True, True).keys()
+            for enemy in enemies:
+                self.sounds['invaderkilled'].play()
+                self.inc_score(enemy.score)
+                EnemyExplosion(enemy.rect.x, enemy.rect.y, enemy.row,
+                               self.explosionsGroup)
+                self.gameTimer = time.get_ticks()
 
         mysteries = groupcollide(self.mysteryGroup, self.bullets,
                                  True, True).keys()
