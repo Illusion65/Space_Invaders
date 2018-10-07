@@ -368,8 +368,6 @@ class Text(object):
 
     def draw(self, surface):
         surface.blit(self.surface, self.rect)
-        if DEBUG:
-            draw.rect(game.screen, RED, self.rect, 1)
 
 
 class SpaceInvaders(object):
@@ -690,7 +688,10 @@ class SpaceInvaders(object):
                 for e in event.get():
                     if self.should_exit(e):
                         sys.exit()
-
+            if DEBUG:
+                fps = Text(FONT, 12, "FPS: " + str(int(self.clock.get_fps())),
+                           RED, 0, 587)
+                fps.draw(self.screen)
             display.update()
             self.clock.tick(60)
 
