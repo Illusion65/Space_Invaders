@@ -545,11 +545,7 @@ class SpaceInvaders(object):
 
     def make_enemies(self):
         enemies = EnemiesGroup(10, 5)
-        blocks = [EnemiesBlock(self.allSprites),
-                  EnemiesBlock(self.allSprites),
-                  EnemiesBlock(self.allSprites),
-                  EnemiesBlock(self.allSprites),
-                  EnemiesBlock(self.allSprites)]
+        blocks = [EnemiesBlock(self.allSprites) for _ in range(5)]
         for row in range(5):
             for column in range(10):
                 x = 157 + (column * 50)
@@ -711,7 +707,7 @@ class SpaceInvaders(object):
             if DEBUG:
                 fps = CachedText(FONT, 12, "FPS:", RED, 0, 587)
                 fps2 = CachedText(FONT, 12,  str(int(self.clock.get_fps())),
-                            RED, 40, 587)
+                                  RED, 40, 587)
                 fps.draw(self.screen)
                 fps2.draw(self.screen)
             display.update()
