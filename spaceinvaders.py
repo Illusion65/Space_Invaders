@@ -9,8 +9,9 @@ from random import randint, choice
 
 from pygame import display, draw, event, font, image, init, key,\
     mixer, time, transform, Rect, Surface
-from pygame.constants import QUIT, KEYDOWN, KEYUP,\
+from pygame.constants import QUIT, KEYDOWN, KEYUP, USEREVENT,\
     K_ESCAPE, K_LEFT, K_RIGHT, K_SPACE
+from pygame.event import Event
 from pygame.mixer import Sound
 from pygame.sprite import groupcollide, Group, Sprite
 
@@ -40,6 +41,8 @@ IMG_NAMES = ['ship', 'mystery',
              'laser', 'enemylaser']
 IMAGES = {name: image.load(IMAGE_PATH + '{}.png'.format(name)).convert_alpha()
           for name in IMG_NAMES}
+
+EVENT_SHIP_CREATE = USEREVENT + 0
 
 
 class Ship(Sprite):
@@ -72,6 +75,12 @@ class Bullet(Sprite):
 
 
 class Enemy(Sprite):
+    row_scores = {0: 30,
+                  1: 20,
+                  2: 20,
+                  3: 10,
+                  4: 10}
+
     def __init__(self, x, y, row, column, *groups):
         self.row = row
         self.column = column
@@ -86,6 +95,7 @@ class Enemy(Sprite):
         self.leftMoves = 30
         self.moveNumber = 15
         self.timer = time.get_ticks()
+        self.score = self.row_scores[self.row]
 
     # noinspection PyUnusedLocal
     def update(self, keys, current_time, enemies):
@@ -257,44 +267,31 @@ class BlockersBlock(Sprite):
 class Mystery(Sprite):
     def __init__(self, *groups):
         Sprite.__init__(self, *groups)
-        self.image = IMAGES['mystery']
-        self.image = transform.scale(self.image, (75, 35))
+        self.image = transform.scale(IMAGES['mystery'], (75, 35))
         self.rect = self.image.get_rect(topleft=(-80, 45))
-        self.row = 5
         self.moveTime = 25000
-        self.direction = 1
+        self.velocity = 2
         self.timer = time.get_ticks()
-        self.mysteryEntered = mixer.Sound(SOUND_PATH + 'mysteryentered.wav')
+        self.mysteryEntered = Sound(SOUND_PATH + 'mysteryentered.wav')
         self.mysteryEntered.set_volume(0.3)
         self.playSound = True
+        self.score = choice([50, 100, 150, 300])
 
     # noinspection PyUnusedLocal
     def update(self, keys, current_time, *args):
-        reset_timer = False
         passed = current_time - self.timer
         if passed > self.moveTime:
             if (self.rect.x < 0 or self.rect.x > 800) and self.playSound:
                 self.mysteryEntered.play()
                 self.playSound = False
-            if self.rect.x < 840 and self.direction == 1:
+            if -100 < self.rect.x < 840:
                 self.mysteryEntered.fadeout(4000)
-                self.rect.x += 2
+                self.rect.x += self.velocity
                 game.screen.blit(self.image, self.rect)
-            elif self.rect.x > -100 and self.direction == -1:
-                self.mysteryEntered.fadeout(4000)
-                self.rect.x -= 2
-                game.screen.blit(self.image, self.rect)
-
-        if self.rect.x > 830:
-            self.playSound = True
-            self.direction = -1
-            reset_timer = True
-        elif self.rect.x < -90:
-            self.playSound = True
-            self.direction = 1
-            reset_timer = True
-        if passed > self.moveTime and reset_timer:
-            self.timer = current_time
+            if self.rect.x < -90 or self.rect.x > 830:
+                self.playSound = True
+                self.velocity *= -1
+                self.timer = current_time
 
 
 class EnemyExplosion(Sprite):
@@ -349,6 +346,7 @@ class ShipExplosion(Sprite):
             game.screen.blit(self.image, self.rect)
         elif 900 < passed:
             self.kill()
+            event.post(Event(EVENT_SHIP_CREATE))
 
 
 class Life(Sprite):
@@ -451,11 +449,8 @@ class SpaceInvaders(object):
                                  self.make_blockers(600))
         self.timer = time.get_ticks()
         self.noteTimer = time.get_ticks()
-        self.shipTimer = time.get_ticks()
         self.score = score
         self.scoreText2 = Text(FONT, 20, str(self.score), GREEN, 85, 5)
-        self.makeNewShip = False
-        self.shipAlive = True
         self.noteIndex = 0
 
     @staticmethod
@@ -516,7 +511,7 @@ class SpaceInvaders(object):
                 sys.exit()
             if e.type == KEYDOWN:
                 if e.key == K_SPACE:
-                    if len(self.bullets) == 0 and self.shipAlive:
+                    if not self.bullets and self.player.alive():
                         y = self.player.rect.y + 5
                         if self.score < 1000:
                             Bullet(self.player.rect.x + 23, y, -15, 'laser',
@@ -528,6 +523,8 @@ class SpaceInvaders(object):
                             Bullet(self.player.rect.x + 38, y, -15, 'laser',
                                    self.bullets, self.allSprites)
                             self.sounds['shoot2'].play()
+            if e.type == EVENT_SHIP_CREATE:
+                self.player = Ship(self.allSprites, self.playerGroup)
 
     def make_enemies(self):
         enemies = EnemiesGroup(10, 5)
@@ -554,19 +551,9 @@ class SpaceInvaders(object):
                        self.enemyBullets, self.allSprites)
                 self.timer = time.get_ticks()
 
-    def calculate_score(self, row):
-        scores = {0: 30,
-                  1: 20,
-                  2: 20,
-                  3: 10,
-                  4: 10,
-                  5: choice([50, 100, 150, 300])
-                  }
-
-        score = scores[row]
+    def inc_score(self, score):
         self.score += score
         self.scoreText2 = Text(FONT, 20, str(self.score), GREEN, 85, 5)
-        return score
 
     @staticmethod
     def check_collisions_blockers(group, blocks, killa, killb):
@@ -581,62 +568,40 @@ class SpaceInvaders(object):
     def check_collisions(self):
         groupcollide(self.bullets, self.enemyBullets, True, True)
 
-        blocksdict = groupcollide(self.bullets, self.enemiesBlocks,
-                                  False, False)
-        if blocksdict:
-            for value in blocksdict.values():
-                for block in value:
-                    # Don't kill B, because of on double hit second bullet fly
-                    # through an explosion and kills next enemy also.
-                    # And we need one dead enemy only.
-                    enemiesdict = groupcollide(self.bullets, block.content,
-                                               True, False)
-                    if enemiesdict:
-                        for value in enemiesdict.values():
-                            for enemy in value:
-                                if enemy.alive():
-                                    enemy.kill()
-                                    self.sounds['invaderkilled'].play()
-                                    self.calculate_score(enemy.row)
-                                    EnemyExplosion(enemy.rect.x, enemy.rect.y,
-                                                   enemy.row,
-                                                   self.explosionsGroup)
-                                    self.gameTimer = time.get_ticks()
+        enemies = groupcollide(self.enemies, self.bullets,
+                               True, True).keys()
+        for enemy in enemies:
+            self.sounds['invaderkilled'].play()
+            self.inc_score(enemy.score)
+            EnemyExplosion(enemy.rect.x, enemy.rect.y, enemy.row,
+                           self.explosionsGroup)
+            self.gameTimer = time.get_ticks()
 
-        mysterydict = groupcollide(self.bullets, self.mysteryGroup,
-                                   True, False)
-        if mysterydict:
-            for value in mysterydict.values():
-                for mystery in value:
-                    if mystery.alive():
-                        mystery.kill()
-                        mystery.mysteryEntered.stop()
-                        self.sounds['mysterykilled'].play()
-                        score = self.calculate_score(mystery.row)
-                        MysteryExplosion(mystery.rect.x, mystery.rect.y, score,
-                                         self.explosionsGroup)
-                        Mystery(self.allSprites, self.mysteryGroup)
+        mysteries = groupcollide(self.mysteryGroup, self.bullets,
+                                 True, True).keys()
+        for mystery in mysteries:
+            mystery.mysteryEntered.stop()
+            self.sounds['mysterykilled'].play()
+            self.inc_score(mystery.score)
+            MysteryExplosion(mystery.rect.x, mystery.rect.y, mystery.score,
+                             self.explosionsGroup)
+            Mystery(self.allSprites, self.mysteryGroup)
 
-        bulletsdict = groupcollide(self.enemyBullets, self.playerGroup,
-                                   True, True)
-        if bulletsdict:
-            for value in bulletsdict.values():
-                for playerShip in value:
-                    if self.livesGroup.has(self.life3):
-                        self.life3.kill()
-                    elif self.livesGroup.has(self.life2):
-                        self.life2.kill()
-                    elif self.livesGroup.has(self.life1):
-                        self.life1.kill()
-                    else:
-                        self.gameOver = True
-                        self.startGame = False
-                    self.sounds['shipexplosion'].play()
-                    ShipExplosion(playerShip.rect.x, playerShip.rect.y,
-                                  self.explosionsGroup)
-                    self.makeNewShip = True
-                    self.shipTimer = time.get_ticks()
-                    self.shipAlive = False
+        players = groupcollide(self.playerGroup, self.enemyBullets,
+                               True, True).keys()
+        for playerShip in players:
+            if self.livesGroup.has(self.life3):
+                self.life3.kill()
+            elif self.livesGroup.has(self.life2):
+                self.life2.kill()
+            elif self.livesGroup.has(self.life1):
+                self.life1.kill()
+            else:
+                self.gameOver = True
+                self.startGame = False
+            self.sounds['shipexplosion'].play()
+            ShipExplosion(playerShip.rect.x, playerShip.rect.y,
+                          self.explosionsGroup)
 
         if groupcollide(self.enemies, self.playerGroup, True, True):
             self.gameOver = True
@@ -652,28 +617,10 @@ class SpaceInvaders(object):
                 self.check_collisions_blockers(self.enemies, self.allBlockers,
                                                False, True)
 
-    def create_new_ship(self, create_ship, current_time):
-        if create_ship and (current_time - self.shipTimer > 900):
-            self.player = Ship(self.allSprites, self.playerGroup)
-            self.makeNewShip = False
-            self.shipAlive = True
-
-    def create_game_over(self, current_time):
-        passed = current_time - self.timer
-        if passed < 750:
-            self.gameOverText.draw(self.screen)
-        elif 1500 < passed < 2250:
-            self.gameOverText.draw(self.screen)
-        elif 3000 < passed:
-            self.mainScreen = True
-
-        for e in event.get():
-            if self.should_exit(e):
-                sys.exit()
-
     def main(self):
         while True:
             self.screen.blit(self.background, (0, 0))
+            current_time = time.get_ticks()
             if self.mainScreen:
                 self.titleText.draw(self.screen)
                 self.titleText2.draw(self.screen)
@@ -695,21 +642,20 @@ class SpaceInvaders(object):
                         self.mainScreen = False
 
             elif self.startGame:
-                if len(self.enemies) == 0 and len(self.explosionsGroup) == 0:
-                    current_time = time.get_ticks()
-                    if current_time - self.gameTimer < 3000:
+                if not self.enemies and not self.explosionsGroup:
+                    passed = current_time - self.gameTimer
+                    if passed <= 3000:
                         self.scoreText.draw(self.screen)
                         self.scoreText2.draw(self.screen)
                         self.nextRoundText.draw(self.screen)
                         self.livesText.draw(self.screen)
                         self.livesGroup.update()
-                    if current_time - self.gameTimer > 3000:
+                    elif 3000 < passed:
                         # Move enemies closer to bottom
                         self.enemyPositionStart += 35
                         self.reset(self.score, len(self.livesGroup))
                         self.gameTimer += 3000
                 else:
-                    current_time = time.get_ticks()
                     self.play_main_music(current_time)
                     self.allBlockers.update()
                     self.scoreText.draw(self.screen)
@@ -725,14 +671,22 @@ class SpaceInvaders(object):
                         self.enemies.changed = False
                     self.explosionsGroup.update(current_time)
                     self.check_collisions()
-                    self.create_new_ship(self.makeNewShip, current_time)
                     self.make_enemies_shoot()
 
             elif self.gameOver:
-                current_time = time.get_ticks()
                 # Reset enemy start position
                 self.enemyPositionStart = self.enemyPositionDefault
-                self.create_game_over(current_time)
+                passed = current_time - self.timer
+                if passed < 750:
+                    self.gameOverText.draw(self.screen)
+                elif 1500 < passed < 2250:
+                    self.gameOverText.draw(self.screen)
+                elif 3000 < passed:
+                    self.mainScreen = True
+
+                for e in event.get():
+                    if self.should_exit(e):
+                        sys.exit()
 
             display.update()
             self.clock.tick(60)
