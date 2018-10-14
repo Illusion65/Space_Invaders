@@ -90,44 +90,18 @@ class Enemy(Sprite):
         self.index = 0
         self.image = self.images[self.index]
         self.rect = self.image.get_rect(topleft=(x, y))
-        self.direction = 1
-        self.rightMoves = 30
-        self.leftMoves = 30
-        self.moveNumber = 15
-        self.timer = time.get_ticks()
         self.score = self.row_scores[self.row]
 
-    # noinspection PyUnusedLocal
-    def update(self, keys, current_time, enemies):
-        if current_time - self.timer > enemies.moveTime:
-            if self.direction == 1:
-                max_move = self.rightMoves + enemies.rightAddMove
-            else:
-                max_move = self.leftMoves + enemies.leftAddMove
-
-            if self.moveNumber >= max_move:
-                if self.direction == 1:
-                    self.leftMoves = 30 + enemies.rightAddMove
-                elif self.direction == -1:
-                    self.rightMoves = 30 + enemies.leftAddMove
-                self.direction *= -1
-                self.moveNumber = 0
-                self.rect.y += 35
-            elif self.direction == 1:
-                self.rect.x += 10
-                self.moveNumber += 1
-            elif self.direction == -1:
-                self.rect.x -= 10
-                self.moveNumber += 1
-
-            self.index += 1
-            if self.index >= len(self.images):
-                self.index = 0
-            self.image = self.images[self.index]
+    def toggle_image(self):
+        self.index += 1
+        if self.index >= len(self.images):
+            self.index = 0
+        self.image = self.images[self.index]
 
             self.timer += enemies.moveTime
             enemies.changed = True
 
+    def update(self, *args):
         game.screen.blit(self.image, self.rect)
 
     def load_images(self):
@@ -171,11 +145,44 @@ class EnemiesGroup(Group):
         self.rightAddMove = 0
         self.moveTime = 600
         self.changed = False
+        self.direction = 1
+        self.rightMoves = 30
+        self.leftMoves = 30
+        self.moveNumber = 15
+        self.timer = time.get_ticks()
+        self.bottom = 0
         self._aliveColumns = list(range(columns))
         self._leftAliveColumn = 0
         self._rightAliveColumn = columns - 1
         self._leftDeadColumns = 0
         self._rightDeadColumns = 0
+
+    def update(self, current_time):
+        if current_time - self.timer > self.moveTime:
+            if self.direction == 1:
+                max_move = self.rightMoves + self.rightAddMove
+            else:
+                max_move = self.leftMoves + self.leftAddMove
+
+            if self.moveNumber >= max_move:
+                if self.direction == 1:
+                    self.leftMoves = 30 + self.rightAddMove
+                elif self.direction == -1:
+                    self.rightMoves = 30 + self.leftAddMove
+                self.direction *= -1
+                self.moveNumber = 0
+                self.bottom += 35
+                for enemy in self:
+                    enemy.rect.y += 35
+                    enemy.toggle_image()
+            else:
+                velocity = 10 if self.direction == 1 else -10
+                for enemy in self:
+                    enemy.rect.x += velocity
+                    enemy.toggle_image()
+                self.moveNumber += 1
+
+            self.timer += self.moveTime
 
     def add_internal(self, *sprites):
         super(Group, self).add_internal(*sprites)
@@ -554,6 +561,8 @@ class SpaceInvaders(object):
                       enemies, self.allSprites, blocks[column / 2].content)
         [_.update_rect() for _ in blocks]
         self.enemiesBlocks = Group(blocks)
+                Enemy(x, y, row, column, enemies, self.allSprites)
+        enemies.bottom = self.enemyPosition + (4 * 45) + 35
         self.enemies = enemies
 
     def make_enemies_shoot(self):
@@ -617,6 +626,10 @@ class SpaceInvaders(object):
             ShipExplosion(playerShip.rect.x, playerShip.rect.y,
                           self.explosionsGroup)
 
+        if self.enemies.bottom >= 540:
+            if groupcollide(self.enemies, self.playerGroup, True, True):
+                self.gameOver = True
+                self.startGame = False
         if self.enemiesBlocks:
             enemies_bottom = max([_.rect.bottom for _ in self.enemiesBlocks])
         else:
@@ -626,6 +639,12 @@ class SpaceInvaders(object):
                 self.gameOver = True
                 self.startGame = False
 
+        groupcollide(self.bullets, self.allBlockers, True, True)
+        groupcollide(self.enemyBullets, self.allBlockers, True, True)
+        # It's too hard to calc 50 en * 144 bl = 7200 collisions with 60 FPS.
+        # Calc if really needed.
+        if self.enemies.bottom >= 450:
+            groupcollide(self.enemies, self.allBlockers, False, True)
         self.check_collisions_blockers(self.bullets, self.allBlockers,
                                        True, True)
         self.check_collisions_blockers(self.enemyBullets, self.allBlockers,
@@ -681,6 +700,8 @@ class SpaceInvaders(object):
                     self.livesGroup.update()
                     self.check_input()
                     keys = key.get_pressed()
+                    self.enemies.update(current_time)
+                    self.allSprites.update(keys, current_time)
                     self.allSprites.update(keys, current_time, self.enemies)
                     if self.enemies.changed:
                         # Re-calc union rect
