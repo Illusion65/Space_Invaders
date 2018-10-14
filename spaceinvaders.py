@@ -98,9 +98,6 @@ class Enemy(Sprite):
             self.index = 0
         self.image = self.images[self.index]
 
-            self.timer += enemies.moveTime
-            enemies.changed = True
-
     def update(self, *args):
         game.screen.blit(self.image, self.rect)
 
@@ -181,7 +178,7 @@ class EnemiesGroup(Group):
                     enemy.rect.x += velocity
                     enemy.toggle_image()
                 self.moveNumber += 1
-
+            self.changed = True
             self.timer += self.moveTime
 
     def add_internal(self, *sprites):
@@ -559,9 +556,8 @@ class SpaceInvaders(object):
                 y = self.enemyPosition + (row * 45)
                 Enemy(x, y, row, column,
                       enemies, self.allSprites, blocks[column / 2].content)
-        [_.update_rect() for _ in blocks]
+        [block.update_rect() for block in blocks]
         self.enemiesBlocks = Group(blocks)
-                Enemy(x, y, row, column, enemies, self.allSprites)
         enemies.bottom = self.enemyPosition + (4 * 45) + 35
         self.enemies = enemies
 
@@ -578,7 +574,7 @@ class SpaceInvaders(object):
         self.scoreText2 = Text(FONT, 20, str(self.score), GREEN, 85, 5)
 
     @staticmethod
-    def check_collisions_blockers(group, blocks, killa, killb):
+    def check_collisions_blocks(group, blocks, killa, killb):
         blocks = groupcollide(blocks, group, False, False).keys()
         for block in blocks:
             groupcollide(group, block.content, killa, killb)
@@ -627,31 +623,19 @@ class SpaceInvaders(object):
                           self.explosionsGroup)
 
         if self.enemies.bottom >= 540:
-            if groupcollide(self.enemies, self.playerGroup, True, True):
-                self.gameOver = True
-                self.startGame = False
-        if self.enemiesBlocks:
-            enemies_bottom = max([_.rect.bottom for _ in self.enemiesBlocks])
-        else:
-            enemies_bottom = 0
-        if enemies_bottom >= 540:
-            if groupcollide(self.enemies, self.playerGroup, True, True):
+            self.check_collisions_blocks(self.enemies, self.playerGroup,
+                                         False, True)
+            if not self.player.alive():
                 self.gameOver = True
                 self.startGame = False
 
-        groupcollide(self.bullets, self.allBlockers, True, True)
-        groupcollide(self.enemyBullets, self.allBlockers, True, True)
-        # It's too hard to calc 50 en * 144 bl = 7200 collisions with 60 FPS.
-        # Calc if really needed.
-        if self.enemies.bottom >= 450:
-            groupcollide(self.enemies, self.allBlockers, False, True)
-        self.check_collisions_blockers(self.bullets, self.allBlockers,
-                                       True, True)
-        self.check_collisions_blockers(self.enemyBullets, self.allBlockers,
-                                       True, True)
-        if enemies_bottom >= Blocker.top:
-            self.check_collisions_blockers(self.enemies, self.allBlockers,
-                                           False, True)
+        self.check_collisions_blocks(self.bullets, self.allBlockers,
+                                     True, True)
+        self.check_collisions_blocks(self.enemyBullets, self.allBlockers,
+                                     True, True)
+        if self.enemies.bottom >= Blocker.top:
+            self.check_collisions_blocks(self.enemies, self.allBlockers,
+                                         False, True)
 
     def main(self):
         while True:
@@ -698,15 +682,14 @@ class SpaceInvaders(object):
                     self.scoreText2.draw(self.screen)
                     self.livesText.draw(self.screen)
                     self.livesGroup.update()
-                    self.check_input()
-                    keys = key.get_pressed()
                     self.enemies.update(current_time)
-                    self.allSprites.update(keys, current_time)
-                    self.allSprites.update(keys, current_time, self.enemies)
                     if self.enemies.changed:
                         # Re-calc union rect
-                        [_.update_rect() for _ in self.enemiesBlocks]
+                        [block.update_rect() for block in self.enemiesBlocks]
                         self.enemies.changed = False
+                    self.check_input()
+                    keys = key.get_pressed()
+                    self.allSprites.update(keys, current_time)
                     self.explosionsGroup.update(current_time)
                     self.check_collisions()
                     self.make_enemies_shoot()
