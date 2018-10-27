@@ -199,14 +199,12 @@ class EnemiesGroup(Group):
 
     def random_bottom(self):
         # type: () -> Optional[Enemy]
-        count = len(self._aliveColumns)
-        if count > 0:
-            random_index = randint(0, count - 1)
-            col = self._aliveColumns[random_index]
-            for row in range(self.rows, 0, -1):
-                enemy = self.enemies[row - 1][col]
-                if enemy:
-                    return enemy
+        random_index = randint(0, len(self._aliveColumns) - 1)
+        col = self._aliveColumns[random_index]
+        for row in range(self.rows, 0, -1):
+            enemy = self.enemies[row - 1][col]
+            if enemy:
+                return enemy
         return None
 
     def _update_speed(self):
@@ -543,12 +541,11 @@ class SpaceInvaders(object):
         self.enemies = enemies
 
     def make_enemies_shoot(self):
-        if (time.get_ticks() - self.timer) > 700:
+        if (time.get_ticks() - self.timer) > 700 and self.enemies:
             enemy = self.enemies.random_bottom()
-            if enemy:
-                Bullet(enemy.rect.x + 14, enemy.rect.y + 20, 5, 'enemylaser',
-                       self.enemyBullets, self.allSprites)
-                self.timer = time.get_ticks()
+            Bullet(enemy.rect.x + 14, enemy.rect.y + 20, 5, 'enemylaser',
+                   self.enemyBullets, self.allSprites)
+            self.timer = time.get_ticks()
 
     def inc_score(self, score):
         self.score += score
@@ -644,14 +641,15 @@ class SpaceInvaders(object):
                         self.mainScreen = False
 
             elif self.startGame:
+                self.scoreText.draw(self.screen)
+                self.scoreText2.draw(self.screen)
+                self.livesText.draw(self.screen)
+                self.livesGroup.update()
+
                 if not self.enemies and not self.explosionsGroup:
                     passed = current_time - self.gameTimer
                     if passed <= 3000:
-                        self.scoreText.draw(self.screen)
-                        self.scoreText2.draw(self.screen)
                         self.nextRoundText.draw(self.screen)
-                        self.livesText.draw(self.screen)
-                        self.livesGroup.update()
                     elif 3000 < passed:
                         # Move enemies closer to bottom
                         self.enemyPosition += ENEMY_MOVE_DOWN
@@ -660,10 +658,6 @@ class SpaceInvaders(object):
                 else:
                     self.play_main_music(current_time)
                     self.allBlockers.update()
-                    self.scoreText.draw(self.screen)
-                    self.scoreText2.draw(self.screen)
-                    self.livesText.draw(self.screen)
-                    self.livesGroup.update()
                     self.enemies.update(current_time)
                     if self.enemies.changed:
                         # Re-calc union rect
