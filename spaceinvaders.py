@@ -598,8 +598,7 @@ class SpaceInvaders(object):
                           self.explosionsGroup)
 
         if self.enemies.bottom >= 540:
-            self.check_collisions_blocks(self.enemies, self.playerGroup,
-                                         False, True)
+            groupcollide(self.enemies, self.playerGroup, True, True)
             if not self.player.alive() or self.enemies.bottom >= 600:
                 self.gameOver = True
                 self.startGame = False
