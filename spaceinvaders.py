@@ -192,7 +192,8 @@ class EnemiesGroup(Group):
         self._update_speed()
 
     def is_column_dead(self, column):
-        return not any(self.enemies[row][column] for row in range(self.rows))
+        return not any(self.enemies[row][column]
+                       for row in range(self.rows))
 
     def random_bottom(self):
         # type: () -> Optional[Enemy]
@@ -599,7 +600,7 @@ class SpaceInvaders(object):
         if self.enemies.bottom >= 540:
             self.check_collisions_blocks(self.enemies, self.playerGroup,
                                          False, True)
-            if not self.player.alive():
+            if not self.player.alive() or self.enemies.bottom >= 600:
                 self.gameOver = True
                 self.startGame = False
 
