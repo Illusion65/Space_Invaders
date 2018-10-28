@@ -5,7 +5,7 @@
 
 import sys
 from os.path import abspath, dirname
-from random import randint, choice
+from random import choice
 
 from pygame import display, draw, event, font, image, init, key,\
     mixer, time, transform, Rect, Surface
@@ -97,11 +97,11 @@ class Enemy(Sprite):
         self.row = row
         self.column = column
         Sprite.__init__(self, *groups)
-        self.images = self.row_images[self.row]
+        self.images = Enemy.row_images[self.row]
         self.index = 0
         self.image = self.images[self.index]
         self.rect = self.image.get_rect(topleft=(x, y))
-        self.score = self.row_scores[self.row]
+        self.score = Enemy.row_scores[self.row]
 
     def toggle_image(self):
         self.index += 1
@@ -119,7 +119,7 @@ class EnemiesBlock(Sprite):
         self.content = Group()
         self.rect = Rect(0, 0, 0, 0)
 
-    def update_rect(self):
+    def calc_union_rect(self):
         if self.content:
             rects = [enemy.rect for enemy in self.content]
             self.rect = rects[0].unionall(rects[1:])
@@ -192,20 +192,14 @@ class EnemiesGroup(Group):
         self._update_speed()
 
     def is_column_dead(self, column):
-        for row in range(self.rows):
-            if self.enemies[row][column]:
-                return False
-        return True
+        return not any(self.enemies[row][column] for row in range(self.rows))
 
     def random_bottom(self):
         # type: () -> Optional[Enemy]
-        random_index = randint(0, len(self._aliveColumns) - 1)
-        col = self._aliveColumns[random_index]
-        for row in range(self.rows, 0, -1):
-            enemy = self.enemies[row - 1][col]
-            if enemy:
-                return enemy
-        return None
+        col = choice(self._aliveColumns)
+        col_enemies = (self.enemies[row - 1][col]
+                       for row in range(self.rows, 0, -1))
+        return next((en for en in col_enemies if en is not None), None)
 
     def _update_speed(self):
         if len(self) == 1:
@@ -366,7 +360,6 @@ class Text(Sprite):
         self.font = font.Font(font_, size)
         self.surface = self.font.render(message, True, color_)
         self.rect = self.surface.get_rect(topleft=(x, y))
-        self.rect = self.surface.get_rect(topleft=(x, y))
 
     def update(self, *args):
         game.screen.blit(self.surface, self.rect)
@@ -444,9 +437,9 @@ class SpaceInvaders(object):
         self.clock = time.Clock()
 
     def reset(self, score, new_game=False):
-        [gr.empty() for gr in [self.allSprites, self.playerGroup, self.bullets,
-                               self.explosionsGroup, self.mysteryGroup,
-                               self.enemyBullets]]
+        for gr in (self.allSprites, self.playerGroup, self.explosionsGroup,
+                   self.bullets, self.mysteryGroup, self.enemyBullets):
+            gr.empty()
         self.player = Ship(self.allSprites, self.playerGroup)
         Mystery(self.allSprites, self.mysteryGroup)
         self.make_enemies()
@@ -535,8 +528,10 @@ class SpaceInvaders(object):
                 x = 157 + (column * 50)
                 y = self.enemyPosition + (row * 45)
                 Enemy(x, y, row, column,
-                      enemies, self.allSprites, blocks[column / 2].content)
-        [block.update_rect() for block in blocks]
+                      enemies, self.allSprites,
+                      blocks[int(column / 2)].content)
+        for block in blocks:
+            block.calc_union_rect()
         self.enemiesBlocks = Group(blocks)
         enemies.bottom = self.enemyPosition + (4 * 45) + 35
         self.enemies = enemies
@@ -588,11 +583,11 @@ class SpaceInvaders(object):
         players = groupcollide(self.playerGroup, self.enemyBullets,
                                True, True).keys()
         for playerShip in players:
-            if self.livesGroup.has(self.life3):
+            if self.life3.alive():
                 self.life3.kill()
-            elif self.livesGroup.has(self.life2):
+            elif self.life2.alive():
                 self.life2.kill()
-            elif self.livesGroup.has(self.life1):
+            elif self.life1.alive():
                 self.life1.kill()
             else:
                 self.gameOver = True
@@ -652,8 +647,8 @@ class SpaceInvaders(object):
                     self.allBlockers.update()
                     self.enemies.update(current_time)
                     if self.enemies.changed:
-                        # Re-calc union rect
-                        [block.update_rect() for block in self.enemiesBlocks]
+                        for block in self.enemiesBlocks:
+                            block.calc_union_rect()
                         self.enemies.changed = False
                     self.check_input()
                     keys = key.get_pressed()
