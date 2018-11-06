@@ -45,6 +45,7 @@ IMAGES = {name: image.load(IMAGE_PATH + '{}.png'.format(name)).convert_alpha()
 ENEMY_DEFAULT_POSITION = 65  # Initial value for a new game
 ENEMY_MOVE_DOWN = 35
 EVENT_SHIP_CREATE = USEREVENT + 0
+EVENT_ENEMY_SHOOT = USEREVENT + 1
 SCREEN_MAIN = 1
 SCREEN_GAME = 2
 SCREEN_OVER = 3
@@ -438,11 +439,12 @@ class SpaceInvaders(object):
         self.player = Ship(self.allSprites, self.playerGroup)
         Mystery(self.allSprites, self.mysteryGroup)
         self.make_enemies()
-        self.timer = time.get_ticks()
         self.noteTimer = time.get_ticks()
         self.score = score
         self.scoreText2 = Text(FONT, 20, str(self.score), GREEN, 85, 5)
         self.noteIndex = 0
+        event.clear()
+        time.set_timer(EVENT_ENEMY_SHOOT, 700)
 
     @staticmethod
     def make_blockers(offset):
@@ -507,6 +509,10 @@ class SpaceInvaders(object):
                             self.sounds['shoot2'].play()
             elif e.type == EVENT_SHIP_CREATE:
                 self.player = Ship(self.allSprites, self.playerGroup)
+            elif e.type == EVENT_ENEMY_SHOOT and self.enemies:
+                enemy = self.enemies.random_bottom()
+                Bullet(enemy.rect.x + 14, enemy.rect.y + 20, 5, 'enemylaser',
+                       self.enemyBullets, self.allSprites)
 
     def make_enemies(self):
         enemies = EnemiesGroup(10, 5)
@@ -523,13 +529,6 @@ class SpaceInvaders(object):
         self.enemiesBlocks = Group(blocks)
         enemies.bottom = self.enemyPosition + (4 * 45) + 35
         self.enemies = enemies
-
-    def make_enemies_shoot(self):
-        if (time.get_ticks() - self.timer) > 700 and self.enemies:
-            enemy = self.enemies.random_bottom()
-            Bullet(enemy.rect.x + 14, enemy.rect.y + 20, 5, 'enemylaser',
-                   self.enemyBullets, self.allSprites)
-            self.timer = time.get_ticks()
 
     def inc_score(self, score):
         self.score += score
@@ -573,6 +572,7 @@ class SpaceInvaders(object):
                 self.life1.kill()
             else:
                 self.screenType = SCREEN_OVER
+                self.gameTimer = time.get_ticks()
             self.sounds['shipexplosion'].play()
             ShipExplosion(playerShip, self.explosionsGroup)
 
@@ -580,6 +580,7 @@ class SpaceInvaders(object):
             groupcollide(self.enemies, self.playerGroup, True, True)
             if not self.player.alive() or self.enemies.bottom >= 600:
                 self.screenType = SCREEN_OVER
+                self.gameTimer = time.get_ticks()
 
         self.check_collisions_blocks(self.bullets, self.allBlockers,
                                      True, True)
@@ -624,7 +625,6 @@ class SpaceInvaders(object):
                         # Move enemies closer to bottom
                         self.enemyPosition += ENEMY_MOVE_DOWN
                         self.reset(self.score)
-                        self.gameTimer += 3000
                 else:
                     self.play_main_music(current_time)
                     self.allBlockers.update()
@@ -638,12 +638,11 @@ class SpaceInvaders(object):
                     self.allSprites.update(keys, current_time)
                     self.explosionsGroup.update(current_time)
                     self.check_collisions()
-                    self.make_enemies_shoot()
 
             elif self.screenType == SCREEN_OVER:
                 # Reset enemy start position
                 self.enemyPosition = ENEMY_DEFAULT_POSITION
-                passed = current_time - self.timer
+                passed = current_time - self.gameTimer
                 if passed < 750 or 1500 < passed < 2250:
                     self.gameOverText.update()
                 elif 3000 < passed:
