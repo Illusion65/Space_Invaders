@@ -161,6 +161,7 @@ class EnemiesGroup(Group):
                 self.rightMoves = 30 + self.leftAddMove
                 self.direction *= -1
                 self.moveNumber = 0
+                self.bottom = 0
                 for enemy in self:
                     enemy.rect.y += ENEMY_MOVE_DOWN
                     enemy.toggle_image()
