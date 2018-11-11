@@ -354,32 +354,20 @@ class Img(Sprite):
 
 
 class Txt(Sprite):
-    def __init__(self, font_, size, message, color_, x, y, *groups):
+    cache = {}
+
+    def __init__(self, font_, size, msg, color_, x, y, *groups):
         super(Txt, self).__init__(*groups)
-        self.font = font.Font(font_, size)
-        self.image = self.font.render(str(message), True, color_)
+        key_ = hash(msg) + hash(size) + hash(color_)
+        if key_ in Txt.cache:
+            self.image = Txt.cache[key_]
+        else:
+            self.image = font.Font(font_, size).render(str(msg), True, color_)
+            Txt.cache[key_] = self.image
         self.rect = self.image.get_rect(topleft=(x, y))
 
     def update(self, *args):
         game.screen.blit(self.image, self.rect)
-
-
-class CachedTxt(object):
-    cache = {}
-
-    def __init__(self, text_font, size, message, color_, x, y):
-        key_ = hash(message) + hash(size) + hash(color_)
-        if key_ in CachedTxt.cache:
-            self.surface = CachedTxt.cache[key_]
-        else:
-            self.font = font.Font(text_font, size)
-            self.surface = self.font.render(message, True, color_)
-            CachedTxt.cache[key_] = self.surface
-
-        self.rect = self.surface.get_rect(topleft=(x, y))
-
-    def draw(self, surface):
-        surface.blit(self.surface, self.rect)
 
 
 class SpaceInvaders(object):
@@ -627,11 +615,8 @@ class SpaceInvaders(object):
                     if self.should_exit(e):
                         sys.exit()
             if DEBUG:
-                fps = CachedTxt(FONT, 12, "FPS:", RED, 0, 587)
-                fps2 = CachedTxt(FONT, 12,  str(int(self.clock.get_fps())),
-                                 RED, 40, 587)
-                fps.draw(self.screen)
-                fps2.draw(self.screen)
+                Txt(FONT, 12, "FPS: " + str(int(self.clock.get_fps())),
+                    RED, 0, 587).update()
             display.update()
             self.clock.tick(60)
 
