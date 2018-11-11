@@ -16,7 +16,6 @@ from pygame.event import Event
 from pygame.mixer import Sound
 from pygame.sprite import groupcollide, Group, Sprite
 
-
 DEBUG = True
 
 BASE_PATH = abspath(dirname(__file__))
@@ -49,6 +48,7 @@ ENEMY_MOVE_DOWN = 35
 EVENT_SHIP_CREATE = USEREVENT + 0
 EVENT_ENEMY_SHOOT = USEREVENT + 1
 EVENT_ENEMY_MOVE_NOTE = USEREVENT + 2
+EVENT_MYSTERY = USEREVENT + 3
 SCREEN_MAIN = 1
 SCREEN_GAME = 2
 SCREEN_OVER = 3
@@ -161,10 +161,11 @@ class EnemiesGroup(Group):
                 self.rightMoves = 30 + self.leftAddMove
                 self.direction *= -1
                 self.moveNumber = 0
-                self.bottom += ENEMY_MOVE_DOWN
                 for enemy in self:
                     enemy.rect.y += ENEMY_MOVE_DOWN
                     enemy.toggle_image()
+                    if self.bottom < enemy.rect.y:
+                        self.bottom = enemy.rect.y + 35
             else:
                 velocity = 10 if self.direction == 1 else -10
                 for enemy in self:
@@ -250,33 +251,28 @@ class BlockersBlock(Sprite):
 
 
 class Mystery(Sprite):
+    velocity = 2
+
     def __init__(self, *groups):
         super(Mystery, self).__init__(*groups)
         self.image = transform.scale(IMAGES['mystery'], (75, 35))
-        self.rect = self.image.get_rect(topleft=(-80, 45))
-        self.moveTime = 25000
-        self.velocity = 2
-        self.timer = time.get_ticks()
+        x = -80 if Mystery.velocity > 0 else 800
+        self.rect = self.image.get_rect(topleft=(x, 45))
         self.mysteryEntered = Sound(SOUND_PATH + 'mysteryentered.wav')
         self.mysteryEntered.set_volume(0.3)
-        self.playSound = True
+        self.mysteryEntered.play(fade_ms=1000)
         self.score = choice([50, 100, 150, 300])
 
-    # noinspection PyUnusedLocal
-    def update(self, keys, current_time, *args):
-        passed = current_time - self.timer
-        if passed > self.moveTime:
-            if (self.rect.x < 0 or self.rect.x > 800) and self.playSound:
-                self.mysteryEntered.play()
-                self.playSound = False
-            if -100 < self.rect.x < 840:
-                self.mysteryEntered.fadeout(4000)
-                self.rect.x += self.velocity
-                game.screen.blit(self.image, self.rect)
-            if self.rect.x < -90 or self.rect.x > 830:
-                self.playSound = True
-                self.velocity *= -1
-                self.timer = current_time
+    def update(self, *args):
+        self.rect.x += Mystery.velocity
+        game.screen.blit(self.image, self.rect)
+        if self.rect.x < -80 or self.rect.x > 800:
+            Mystery.velocity *= -1
+            self.kill()
+
+    def kill(self):
+        super(Mystery, self).kill()
+        time.set_timer(EVENT_MYSTERY, 25000)
 
 
 class EnemyExplosion(Sprite):
@@ -423,11 +419,11 @@ class SpaceInvaders(object):
                    self.bullets, self.mysteryGroup, self.enemyBullets):
             gr.empty()
         self.player = Ship(self.allSprites, self.playerGroup)
-        Mystery(self.allSprites, self.mysteryGroup)
         self.make_enemies()
         self.musicNotesCycle = cycle(self.musicNotes)
         event.clear()
         time.set_timer(EVENT_ENEMY_SHOOT, 700)
+        time.set_timer(EVENT_MYSTERY, 25000)
 
     def make_blockers(self):
         for offset in (50, 250, 450, 650):
@@ -470,6 +466,8 @@ class SpaceInvaders(object):
                        self.enemyBullets, self.allSprites)
             elif e.type == EVENT_ENEMY_MOVE_NOTE:
                 self.musicNotesCycle.next().play()
+            elif e.type == EVENT_MYSTERY:
+                Mystery(self.mysteryGroup, self.allSprites)
 
     def make_enemies(self):
         enemies = EnemiesGroup(10, 5)
@@ -515,7 +513,7 @@ class SpaceInvaders(object):
             self.sounds['mysterykilled'].play()
             self.inc_score(mystery.score)
             MysteryExplosion(mystery, self.explosionsGroup)
-            Mystery(self.allSprites, self.mysteryGroup)
+            Mystery.velocity = 2  # Reset direction
 
         for playerShip in groupcollide(self.playerGroup, self.enemyBullets,
                                        True, True).keys():
