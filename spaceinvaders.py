@@ -8,13 +8,13 @@ from itertools import cycle
 from os.path import abspath, dirname
 from random import choice
 
-from pygame import display, draw, event, font, image, init, key,\
-    mixer, time, transform, Rect, Surface
-from pygame.constants import QUIT, KEYDOWN, KEYUP, USEREVENT,\
+from pygame import display, event, font, image, init, key, \
+    mixer, time, transform, Surface
+from pygame.constants import QUIT, KEYDOWN, KEYUP, USEREVENT, \
     K_ESCAPE, K_LEFT, K_RIGHT, K_SPACE
 from pygame.event import Event
 from pygame.mixer import Sound
-from pygame.sprite import groupcollide, Group, Sprite
+from pygame.sprite import groupcollide, Group, DirtySprite, LayeredDirty
 
 DEBUG = True
 
@@ -54,35 +54,98 @@ SCREEN_GAME = 2
 SCREEN_OVER = 3
 
 
-class Ship(Sprite):
+class Txt(DirtySprite):
+    font_cache = {}
+    cache = {}
+
+    def __init__(self, font_, size, msg, color_, x, y, *groups):
+        super(Txt, self).__init__(*groups)
+        self._x = x
+        self._y = y
+        self._msg = msg
+        self._size = size
+        self._font = font_
+        self._color = color_
+        self.rect = None
+        self.image = None
+
+    def _get_msg(self):
+        return self._msg
+
+    def _set_msg(self, msg):
+        if self._msg != msg:
+            self._msg = msg
+            self.dirty = 1
+
+    msg = property(_get_msg, _set_msg, doc="Message Text")
+
+    def update(self, *args):
+        font_key = hash(self._font) + hash(self._size)
+        if font_key in Txt.font_cache:
+            font_ = Txt.font_cache[font_key]
+        else:
+            font_ = font.Font(self._font, self._size)
+            Txt.font_cache[font_key] = font_
+
+        key_ = font_key + hash(self.msg) + hash(self._color)
+        if key_ in Txt.cache:
+            self.image = Txt.cache[key_]
+        else:
+            self.image = font_.render(str(self.msg), True, self._color)
+            Txt.cache[key_] = self.image
+        self.rect = self.image.get_rect(topleft=(self._x, self._y))
+
+
+class Img(DirtySprite):
+    cache = {}
+
+    def __init__(self, x, y, filename, w, h, *groups):
+        super(Img, self).__init__(*groups)
+        key_ = hash(filename) + hash(w) + hash(h)
+        if key_ in Img.cache:
+            self.image = Img.cache[key_]
+        else:
+            self.image = transform.scale(IMAGES[filename], (w, h))
+            Img.cache[key_] = self.image
+        self.rect = self.image.get_rect(topleft=(x, y))
+
+
+class Ship(DirtySprite):
     def __init__(self, *groups):
         super(Ship, self).__init__(*groups)
         self.image = IMAGES['ship']
         self.rect = self.image.get_rect(topleft=(375, 540))
+        self.timer = time.get_ticks()
 
-    def update(self, keys, *args):
-        if keys[K_LEFT] and self.rect.x > 10:
-            self.rect.x -= 5
-        if keys[K_RIGHT] and self.rect.x < 740:
-            self.rect.x += 5
-        game.screen.blit(self.image, self.rect)
+    def update(self, current_time, keys, *args):
+        if current_time - self.timer > 20:
+            self.timer = current_time
+            if keys[K_LEFT] and self.rect.x > 10:
+                self.rect.x -= 5
+                self.dirty = 1
+            if keys[K_RIGHT] and self.rect.x < 740:
+                self.rect.x += 5
+                self.dirty = 1
 
 
-class Bullet(Sprite):
+class Bullet(DirtySprite):
     def __init__(self, x, y, velocity, filename, *groups):
         super(Bullet, self).__init__(*groups)
         self.image = IMAGES[filename]
         self.rect = self.image.get_rect(topleft=(x, y))
         self.velocity = velocity
+        self.timer = time.get_ticks()
 
-    def update(self, *args):
-        game.screen.blit(self.image, self.rect)
-        self.rect.y += self.velocity
+    def update(self, current_time, *args):
+        if current_time - self.timer > 20:
+            self.timer = current_time
+            self.rect.y += self.velocity
+            self.dirty = 1
         if self.rect.y < 15 or self.rect.y > 600:
             self.kill()
 
 
-class Enemy(Sprite):
+class Enemy(DirtySprite):
     row_scores = {0: 30, 1: 20, 2: 20, 3: 10, 4: 10}
     row_images = {0: [transform.scale(IMAGES['enemy1_2'], (40, 35)),
                       transform.scale(IMAGES['enemy1_1'], (40, 35))],
@@ -106,27 +169,7 @@ class Enemy(Sprite):
 
     def toggle_image(self):
         self.image = self.imagesCycle.next()
-
-    def update(self, *args):
-        game.screen.blit(self.image, self.rect)
-
-
-class EnemiesBlock(Sprite):
-    def __init__(self, *groups):
-        super(EnemiesBlock, self).__init__(*groups)
-        self.content = Group()
-        self.rect = Rect(0, 0, 0, 0)
-
-    def calc_union_rect(self):
-        if self.content:
-            rects = [enemy.rect for enemy in self.content]
-            self.rect = rects[0].unionall(rects[1:])
-
-    def update(self, *args):
-        if not self.content:
-            self.kill()
-        if DEBUG:
-            draw.rect(game.screen, RED, self.rect, 1)
+        self.dirty = 1
 
 
 class EnemiesGroup(Group):
@@ -138,7 +181,6 @@ class EnemiesGroup(Group):
         self.leftAddMove = 0
         self.rightAddMove = 0
         self.moveTime = 600
-        self.changed = False
         self.direction = 1
         self.rightMoves = 30
         self.leftMoves = 30
@@ -173,7 +215,6 @@ class EnemiesGroup(Group):
                     enemy.rect.x += velocity
                     enemy.toggle_image()
                 self.moveNumber += 1
-            self.changed = True
             self.timer += self.moveTime
             event.post(Event(EVENT_ENEMY_MOVE_NOTE, {}))
 
@@ -225,33 +266,15 @@ class EnemiesGroup(Group):
                 is_column_dead = self.is_column_dead(self._leftAliveColumn)
 
 
-class Blocker(Sprite):
+class Blocker(DirtySprite):
     def __init__(self, x, y, size, color_, *groups):
         super(Blocker, self).__init__(*groups)
         self.image = Surface((size, size))
         self.image.fill(color_)
         self.rect = self.image.get_rect(topleft=(x, y))
 
-    def update(self, *args):
-        game.screen.blit(self.image, self.rect)
 
-
-class BlockersBlock(Sprite):
-    def __init__(self, content, *groups):
-        super(BlockersBlock, self).__init__(*groups)
-        if content:
-            self.content = content
-            rects = [blocker.rect for blocker in content]
-            self.rect = rects[0].unionall(rects[1:])
-
-    def update(self, *args):
-        for blocker in self.content:
-            blocker.update(*args)
-        if DEBUG:
-            draw.rect(game.screen, RED, self.rect, 1)
-
-
-class Mystery(Sprite):
+class Mystery(DirtySprite):
     velocity = 2
 
     def __init__(self, *groups):
@@ -263,25 +286,30 @@ class Mystery(Sprite):
         self.mysteryEntered.set_volume(0.3)
         self.mysteryEntered.play(fade_ms=1000)
         self.score = choice([50, 100, 150, 300])
+        self.timer = time.get_ticks()
 
-    def update(self, *args):
-        self.rect.x += Mystery.velocity
-        game.screen.blit(self.image, self.rect)
-        if self.rect.x < -80 or self.rect.x > 800:
-            Mystery.velocity *= -1
-            self.kill()
+    def update(self, current_time, *args):
+        if current_time - self.timer > 20:
+            self.timer = current_time
+            self.rect.x += Mystery.velocity
+            self.dirty = 1
+            if self.rect.x < -80 or self.rect.x > 800:
+                Mystery.velocity *= -1
+                self.kill()
 
     def kill(self):
         super(Mystery, self).kill()
         time.set_timer(EVENT_MYSTERY, 25000)
 
 
-class EnemyExplosion(Sprite):
+class EnemyExplosion(DirtySprite):
     def __init__(self, enemy, *groups):
         super(EnemyExplosion, self).__init__(*groups)
         self.image = transform.scale(self.get_image(enemy.row), (40, 35))
-        self.image2 = transform.scale(self.image, (50, 45))
+        self.image2 = transform.scale(self.get_image(enemy.row), (50, 45))
         self.rect = self.image.get_rect(topleft=(enemy.rect.x, enemy.rect.y))
+        self.rect2 = self.image2.get_rect(
+            topleft=(enemy.rect.x - 6, enemy.rect.y - 6))
         self.timer = time.get_ticks()
 
     @staticmethod
@@ -289,72 +317,55 @@ class EnemyExplosion(Sprite):
         img_colors = ['purple', 'blue', 'blue', 'green', 'green']
         return IMAGES['explosion{}'.format(img_colors[row])]
 
-    def update(self, current_time):
+    def update(self, current_time, *args):
         passed = current_time - self.timer
-        if passed <= 100:
-            game.screen.blit(self.image, self.rect)
-        elif passed <= 200:
-            game.screen.blit(self.image2, (self.rect.x - 6, self.rect.y - 6))
+        if 100 < passed < 400:
+            self.image = self.image2
+            self.rect = self.rect2
+            self.dirty = 1
         elif 400 < passed:
             self.kill()
 
 
-class MysteryExplosion(Sprite):
+class MysteryExplosion(Txt):
     def __init__(self, mystery, *groups):
-        super(MysteryExplosion, self).__init__(*groups)
-        self.text = Txt(FONT, 20, str(mystery.score), WHITE,
-                        mystery.rect.x + 20, mystery.rect.y + 6)
+        super(MysteryExplosion, self).__init__(
+            FONT, 20, mystery.score, WHITE,
+            mystery.rect.x + 20, mystery.rect.y + 6,
+            *groups)
         self.timer = time.get_ticks()
 
-    def update(self, current_time):
+    def update(self, current_time, *args):
+        super(MysteryExplosion, self).update(current_time, *args)
         passed = current_time - self.timer
-        if passed <= 200 or 400 < passed <= 600:
-            self.text.update()
-        elif 600 < passed:
+        if 600 < passed:
             self.kill()
+        elif passed <= 200 or 400 < passed <= 600:
+            if not self.visible:
+                self.visible = True
+        else:
+            if self.visible:
+                self.visible = False
 
 
-class ShipExplosion(Sprite):
+class ShipExplosion(DirtySprite):
     def __init__(self, ship, *groups):
         super(ShipExplosion, self).__init__(*groups)
         self.image = IMAGES['ship']
         self.rect = self.image.get_rect(topleft=(ship.rect.x, ship.rect.y))
         self.timer = time.get_ticks()
 
-    def update(self, current_time):
+    def update(self, current_time, *args):
         passed = current_time - self.timer
-        if 300 < passed <= 600:
-            game.screen.blit(self.image, self.rect)
-        elif 900 < passed:
+        if 900 < passed:
             self.kill()
             event.post(Event(EVENT_SHIP_CREATE, {}))
-
-
-class Img(Sprite):
-    def __init__(self, x, y, filename, w, h, *groups):
-        super(Img, self).__init__(*groups)
-        self.image = transform.scale(IMAGES[filename], (w, h))
-        self.rect = self.image.get_rect(topleft=(x, y))
-
-    def update(self, *args):
-        game.screen.blit(self.image, self.rect)
-
-
-class Txt(Sprite):
-    cache = {}
-
-    def __init__(self, font_, size, msg, color_, x, y, *groups):
-        super(Txt, self).__init__(*groups)
-        key_ = hash(msg) + hash(size) + hash(color_)
-        if key_ in Txt.cache:
-            self.image = Txt.cache[key_]
+        elif 300 < passed <= 600:
+            if not self.visible:
+                self.visible = True
         else:
-            self.image = font.Font(font_, size).render(str(msg), True, color_)
-            Txt.cache[key_] = self.image
-        self.rect = self.image.get_rect(topleft=(x, y))
-
-    def update(self, *args):
-        game.screen.blit(self.image, self.rect)
+            if self.visible:
+                self.visible = False
 
 
 class SpaceInvaders(object):
@@ -383,7 +394,7 @@ class SpaceInvaders(object):
         # Counter for enemy starting position (increased each new round)
         self.enemyPosition = ENEMY_DEFAULT_POSITION
 
-        self.mainScreenGroup = Group(
+        self.mainScene = LayeredDirty(
             Txt(FONT, 50, 'Space Invaders', WHITE, 164, 155),
             Txt(FONT, 25, 'Press any key to continue', WHITE, 201, 225),
             Img(318, 270, 'enemy3_1', 40, 40),
@@ -395,31 +406,41 @@ class SpaceInvaders(object):
             Img(299, 420, 'mystery', 80, 40),
             Txt(FONT, 25, '   =  ?????', RED, 368, 420),
         )
+        self.mainScene.set_timing_treshold(1000.0 / 25.0)
+        self.mainScene.clear(self.screen, self.background)
         self.gameOverTxt = Txt(FONT, 50, 'Game Over', WHITE, 250, 270)
         self.nextRoundTxt = Txt(FONT, 50, 'Next Round', WHITE, 240, 270)
 
-        self.allSprites = Group()
+        self.gameScene = LayeredDirty()
+        self.gameScene.set_timing_treshold(1000.0 / 25.0)
+        self.gameScene.clear(self.screen, self.background)
         self.bullets = Group()
         self.enemyBullets = Group()
         self.explosionsGroup = Group()
         self.playerGroup = Group()
         self.mysteryGroup = Group()
         self.allBlockers = Group()
-        self.score = 0
+
         self.dashGroup = Group(Txt(FONT, 20, 'Score', WHITE, 5, 5),
                                Txt(FONT, 20, 'Lives ', WHITE, 640, 5))
-        self.scoreTxt = Txt(FONT, 20, self.score, GREEN, 85, 5, self.dashGroup)
+        self.scoreTxt = Txt(FONT, 20, 0, GREEN, 85, 5, self.dashGroup)
         self.life1 = Img(715, 3, 'ship', 23, 23, self.dashGroup)
         self.life2 = Img(742, 3, 'ship', 23, 23, self.dashGroup)
         self.life3 = Img(769, 3, 'ship', 23, 23, self.dashGroup)
 
         self.clock = time.Clock()
+        if DEBUG:
+            self.fps = Txt(FONT, 12, "FPS: ", RED, 0, 587,
+                           self.mainScene, self.gameScene)
 
     def reset(self):
-        for gr in (self.allSprites, self.playerGroup, self.explosionsGroup,
+        for gr in (self.gameScene, self.playerGroup, self.explosionsGroup,
                    self.bullets, self.mysteryGroup, self.enemyBullets):
             gr.empty()
-        self.player = Ship(self.allSprites, self.playerGroup)
+        if DEBUG:
+            self.gameScene.add(self.fps)
+        self.gameScene.add(self.dashGroup, self.allBlockers)
+        self.player = Ship(self.gameScene, self.playerGroup)
         self.make_enemies()
         self.musicNotesCycle = cycle(self.musicNotes)
         event.clear()
@@ -428,13 +449,11 @@ class SpaceInvaders(object):
 
     def make_blockers(self):
         for offset in (50, 250, 450, 650):
-            blocker_group = Group()
             for row in range(4):
                 for column in range(9):
                     x = offset + (column * 10)
                     y = BLOCKERS_POSITION + (row * 10)
-                    Blocker(x, y, 10, GREEN, blocker_group)
-            BlockersBlock(blocker_group, self.allBlockers)
+                    Blocker(x, y, 10, GREEN, self.allBlockers)
 
     @staticmethod
     def should_exit(evt):
@@ -449,71 +468,52 @@ class SpaceInvaders(object):
                 if e.key == K_SPACE:
                     if not self.bullets and self.player.alive():
                         y = self.player.rect.y + 5
-                        if self.score < 1000:
+                        if self.scoreTxt.msg < 1000:
                             Bullet(self.player.rect.x + 23, y, -15, 'laser',
-                                   self.bullets, self.allSprites)
+                                   self.bullets, self.gameScene)
                             self.sounds['shoot'].play()
                         else:
                             Bullet(self.player.rect.x + 8, y, -15, 'laser',
-                                   self.bullets, self.allSprites)
+                                   self.bullets, self.gameScene)
                             Bullet(self.player.rect.x + 38, y, -15, 'laser',
-                                   self.bullets, self.allSprites)
+                                   self.bullets, self.gameScene)
                             self.sounds['shoot2'].play()
             elif e.type == EVENT_SHIP_CREATE:
-                self.player = Ship(self.allSprites, self.playerGroup)
+                self.player = Ship(self.gameScene, self.playerGroup)
             elif e.type == EVENT_ENEMY_SHOOT and self.enemies:
                 enemy = self.enemies.random_bottom()
                 Bullet(enemy.rect.x + 14, enemy.rect.y + 20, 5, 'enemylaser',
-                       self.enemyBullets, self.allSprites)
+                       self.enemyBullets, self.gameScene)
             elif e.type == EVENT_ENEMY_MOVE_NOTE:
                 self.musicNotesCycle.next().play()
             elif e.type == EVENT_MYSTERY:
-                Mystery(self.mysteryGroup, self.allSprites)
+                Mystery(self.mysteryGroup, self.gameScene)
 
     def make_enemies(self):
         enemies = EnemiesGroup(10, 5)
-        blocks = [EnemiesBlock(self.allSprites) for _ in range(5)]
         for row in range(5):
             for col in range(10):
-                x = 157 + (col * 50)
+                x = 154 + (col * 50)
                 y = self.enemyPosition + (row * 45)
-                Enemy(x, y, row, col,
-                      enemies, self.allSprites, blocks[int(col / 2)].content)
-        for block in blocks:
-            block.calc_union_rect()
-        self.enemiesBlocks = Group(blocks)
+                Enemy(x, y, row, col, enemies, self.gameScene)
         self.enemies = enemies
-
-    def inc_score(self, score):
-        self.score += score
-        self.scoreTxt.kill()
-        self.scoreTxt = Txt(FONT, 20, self.score, GREEN, 85, 5, self.dashGroup)
-
-    @staticmethod
-    def blockscollide(group, blocks, killa, killb):
-        for block in groupcollide(blocks, group, False, False).keys():
-            groupcollide(group, block.content, killa, killb)
-            if killb and not block.content:
-                block.kill()
 
     def check_collisions(self):
         groupcollide(self.bullets, self.enemyBullets, True, True)
 
-        for block in groupcollide(self.enemiesBlocks, self.bullets,
-                                  False, False).keys():
-            for enemy in groupcollide(block.content, self.bullets,
-                                      True, True).keys():
-                self.sounds['invaderkilled'].play()
-                self.inc_score(enemy.score)
-                EnemyExplosion(enemy, self.explosionsGroup)
-                self.gameTimer = time.get_ticks()
+        for enemy in groupcollide(self.enemies, self.bullets,
+                                  True, True).keys():
+            self.sounds['invaderkilled'].play()
+            self.scoreTxt.msg += enemy.score
+            EnemyExplosion(enemy, self.explosionsGroup, self.gameScene)
+            self.gameTimer = time.get_ticks()
 
         for mystery in groupcollide(self.mysteryGroup, self.bullets,
                                     True, True).keys():
             mystery.mysteryEntered.stop()
             self.sounds['mysterykilled'].play()
-            self.inc_score(mystery.score)
-            MysteryExplosion(mystery, self.explosionsGroup)
+            self.scoreTxt.msg += mystery.score
+            MysteryExplosion(mystery, self.explosionsGroup, self.gameScene)
             Mystery.velocity = 2  # Reset direction
 
         for playerShip in groupcollide(self.playerGroup, self.enemyBullets,
@@ -528,7 +528,7 @@ class SpaceInvaders(object):
                 self.screenType = SCREEN_OVER
                 self.gameTimer = time.get_ticks()
             self.sounds['shipexplosion'].play()
-            ShipExplosion(playerShip, self.explosionsGroup)
+            ShipExplosion(playerShip, self.explosionsGroup, self.gameScene)
 
         if self.enemies.bottom >= 540:
             groupcollide(self.enemies, self.playerGroup, True, True)
@@ -536,70 +536,79 @@ class SpaceInvaders(object):
                 self.screenType = SCREEN_OVER
                 self.gameTimer = time.get_ticks()
 
-        self.blockscollide(self.bullets, self.allBlockers, True, True)
-        self.blockscollide(self.enemyBullets, self.allBlockers, True, True)
+        groupcollide(self.bullets, self.allBlockers, True, True)
+        groupcollide(self.enemyBullets, self.allBlockers, True, True)
         if self.enemies.bottom >= BLOCKERS_POSITION:
-            self.blockscollide(self.enemies, self.allBlockers, False, True)
+            groupcollide(self.enemies, self.allBlockers, False, True)
 
     def main(self):
+        scene = self.mainScene
+        scene.clear(self.screen, self.background)
         while True:
-            self.screen.blit(self.background, (0, 0))
+            # update all the sprites
             current_time = time.get_ticks()
-            if self.screenType == SCREEN_MAIN:
-                self.mainScreenGroup.update()
+            keys = key.get_pressed()
 
+            if self.screenType == SCREEN_MAIN:
                 for e in event.get():
                     if self.should_exit(e):
                         sys.exit()
                     elif e.type == KEYUP:
-                        self.reset()
                         # Only create blockers on a new game, not a new round
                         self.allBlockers.empty()
                         self.make_blockers()
-                        self.inc_score(-self.score)  # Set zero score
+                        self.scoreTxt.msg = 0
                         self.dashGroup.add(self.life1, self.life2, self.life3)
+                        self.reset()
                         self.screenType = SCREEN_GAME
+                        scene = self.gameScene
+                        scene.repaint_rect(self.screen.get_rect())
 
             elif self.screenType == SCREEN_GAME:
-                self.dashGroup.update()
-
                 if not self.enemies and not self.explosionsGroup:
                     passed = current_time - self.gameTimer
-                    if passed <= 3000:
-                        self.nextRoundTxt.update()
-                    elif 3000 < passed:
+                    if self.nextRoundTxt not in self.gameScene:
+                        self.gameScene.add(self.nextRoundTxt, layer=255)
+                    if 3000 < passed:
                         # Move enemies closer to bottom
                         self.enemyPosition += ENEMY_MOVE_DOWN
                         self.reset()
+                    for e in event.get():
+                        if self.should_exit(e):
+                            sys.exit()
                 else:
-                    self.allBlockers.update()
                     self.enemies.update(current_time)
-                    if self.enemies.changed:
-                        for block in self.enemiesBlocks:
-                            block.calc_union_rect()
-                        self.enemies.changed = False
                     self.check_input()
-                    keys = key.get_pressed()
-                    self.allSprites.update(keys, current_time)
-                    self.explosionsGroup.update(current_time)
                     self.check_collisions()
 
             elif self.screenType == SCREEN_OVER:
-                # Reset enemy start position
-                self.enemyPosition = ENEMY_DEFAULT_POSITION
                 passed = current_time - self.gameTimer
-                if passed < 750 or 1500 < passed < 2250:
-                    self.gameOverTxt.update()
-                elif 3000 < passed:
+                if self.gameOverTxt not in self.gameScene:
+                    self.gameScene.add(self.gameOverTxt, layer=255)
+                if 3000 < passed:
+                    # Reset enemy start position
+                    self.enemyPosition = ENEMY_DEFAULT_POSITION
                     self.screenType = SCREEN_MAIN
+                    scene = self.mainScene
+                    scene.repaint_rect(self.screen.get_rect())
+                elif passed < 750 or 1500 < passed < 2250:
+                    if not self.gameOverTxt.visible:
+                        self.gameOverTxt.visible = True
+                else:
+                    if self.gameOverTxt.visible:
+                        self.gameOverTxt.visible = False
 
                 for e in event.get():
                     if self.should_exit(e):
                         sys.exit()
+
             if DEBUG:
-                Txt(FONT, 12, "FPS: " + str(int(self.clock.get_fps())),
-                    RED, 0, 587).update()
-            display.update()
+                self.fps.msg = "FPS: " + str(int(self.clock.get_fps()))
+            scene.update(current_time, keys)
+
+            # draw the scene
+            dirty = scene.draw(self.screen)
+            display.update(dirty)
             self.clock.tick(60)
 
 
