@@ -32,6 +32,7 @@ PURPLE = (203, 0, 255)
 RED = (237, 28, 36)
 
 SCREEN = display.set_mode((800, 600))
+BACKGROUND = image.load(IMAGE_PATH + 'background.jpg').convert()
 FONT = FONT_PATH + 'space_invaders.ttf'
 IMG_NAMES = ['ship', 'mystery',
              'enemy1_1', 'enemy1_2',
@@ -49,9 +50,6 @@ EVENT_SHIP_CREATE = USEREVENT + 0
 EVENT_ENEMY_SHOOT = USEREVENT + 1
 EVENT_ENEMY_MOVE_NOTE = USEREVENT + 2
 EVENT_MYSTERY = USEREVENT + 3
-SCREEN_MAIN = 1
-SCREEN_GAME = 2
-SCREEN_OVER = 3
 
 
 class Txt(DirtySprite):
@@ -66,8 +64,7 @@ class Txt(DirtySprite):
         self._size = size
         self._font = font_
         self._color = color_
-        self.rect = None
-        self.image = None
+        self.update_image()
 
     def _get_msg(self):
         return self._msg
@@ -75,11 +72,12 @@ class Txt(DirtySprite):
     def _set_msg(self, msg):
         if self._msg != msg:
             self._msg = msg
+            self.update_image()
             self.dirty = 1
 
     msg = property(_get_msg, _set_msg, doc="Message Text")
 
-    def update(self, *args):
+    def update_image(self):
         font_key = hash(self._font) + hash(self._size)
         if font_key in Txt.font_cache:
             font_ = Txt.font_cache[font_key]
@@ -173,7 +171,7 @@ class Enemy(DirtySprite):
 
 
 class EnemiesGroup(Group):
-    def __init__(self, columns, rows):
+    def __init__(self, columns, rows, position):
         super(EnemiesGroup, self).__init__()
         self.enemies = [[None] * columns for _ in range(rows)]
         self.columns = columns
@@ -186,7 +184,7 @@ class EnemiesGroup(Group):
         self.leftMoves = 30
         self.moveNumber = 15
         self.timer = time.get_ticks()
-        self.bottom = game.enemyPosition + ((rows - 1) * 45) + 35
+        self.bottom = position + (rows - 1) * 45 + 35
         self._aliveColumns = list(range(columns))
         self._leftAliveColumn = 0
         self._rightAliveColumn = columns - 1
@@ -319,7 +317,7 @@ class EnemyExplosion(DirtySprite):
 
     def update(self, current_time, *args):
         passed = current_time - self.timer
-        if 100 < passed < 400:
+        if 100 < passed < 400 and self.image != self.image2:
             self.image = self.image2
             self.rect = self.rect2
             self.dirty = 1
@@ -360,20 +358,97 @@ class ShipExplosion(DirtySprite):
         if 900 < passed:
             self.kill()
             event.post(Event(EVENT_SHIP_CREATE, {}))
-        elif 300 < passed <= 600:
-            if not self.visible:
-                self.visible = True
+        elif 300 < passed <= 600 and not self.visible:
+            self.visible = True
+        elif (passed < 300 or 600 < passed) and self.visible:
+            self.visible = False
+
+
+class EmptyScene(LayeredDirty):
+    def __init__(self, *sprites, **kwargs):
+        super(EmptyScene, self).__init__(*sprites, **kwargs)
+        self.set_timing_treshold(1000.0 / 25.0)
+        self.clear(SCREEN, BACKGROUND)
+        self.timer = time.get_ticks()
+        if DEBUG:
+            self.fps = Txt(FONT, 12, "FPS: ", RED, 0, 587, self)
+
+    @staticmethod
+    def should_exit(evt):
+        # type: (event.EventType) -> bool
+        return evt.type == QUIT or (evt.type == KEYUP and evt.key == K_ESCAPE)
+
+
+class MainScene(EmptyScene):
+    def __init__(self, on_key_up, *sprites, **kwargs):
+        super(MainScene, self).__init__(*sprites, **kwargs)
+        self.on_key_up = on_key_up
+        self.add(
+            Txt(FONT, 50, 'Space Invaders', WHITE, 164, 155),
+            Txt(FONT, 25, 'Press any key to continue', WHITE, 201, 225),
+            Img(318, 270, 'enemy3_1', 40, 40),
+            Txt(FONT, 25, '   =   10 pts', GREEN, 368, 270),
+            Img(318, 320, 'enemy2_2', 40, 40),
+            Txt(FONT, 25, '   =  20 pts', BLUE, 368, 320),
+            Img(318, 370, 'enemy1_2', 40, 40),
+            Txt(FONT, 25, '   =  30 pts', PURPLE, 368, 370),
+            Img(299, 420, 'mystery', 80, 40),
+            Txt(FONT, 25, '   =  ?????', RED, 368, 420),
+        )
+
+    def update(self, *args):
+        super(MainScene, self).update(*args)
+        for e in event.get():
+            if self.should_exit(e):
+                sys.exit()
+            elif e.type == KEYUP:
+                self.on_key_up()
+
+
+class NextRoundScene(EmptyScene):
+    def __init__(self, on_finish, *sprites, **kwargs):
+        super(NextRoundScene, self).__init__(*sprites, **kwargs)
+        self.on_finish = on_finish
+        self.add(Txt(FONT, 50, 'Next Round', WHITE, 240, 270))
+
+    def update(self, current_time, *args):
+        super(NextRoundScene, self).update(current_time, *args)
+        for e in event.get():
+            if self.should_exit(e):
+                sys.exit()
+        passed = current_time - self.timer
+        if 3000 < passed:
+            self.on_finish()
+
+
+class GameOverScene(EmptyScene):
+    def __init__(self, on_finish, *sprites, **kwargs):
+        super(GameOverScene, self).__init__(*sprites, **kwargs)
+        self.on_finish = on_finish
+        self.gameOverTxt = Txt(FONT, 50, 'Game Over', WHITE, 250, 270)
+        self.add(self.gameOverTxt)
+
+    def update(self, current_time, *args):
+        super(GameOverScene, self).update(current_time, *args)
+        for e in event.get():
+            if self.should_exit(e):
+                sys.exit()
+        passed = current_time - self.timer
+        if 3000 < passed:
+            self.on_finish()
+        elif passed < 750 or 1500 < passed < 2250:
+            if not self.gameOverTxt.visible:
+                self.gameOverTxt.visible = True
         else:
-            if self.visible:
-                self.visible = False
+            if self.gameOverTxt.visible:
+                self.gameOverTxt.visible = False
 
 
-class SpaceInvaders(object):
-    def __init__(self):
-        # It seems, in Linux buffersize=512 is not enough, use 4096 to prevent:
-        #   ALSA lib pcm.c:7963:(snd_pcm_recover) underrun occurred
-        mixer.pre_init(44100, -16, 1, 4096)
-        init()
+class GameScene(EmptyScene):
+    def __init__(self, on_round, on_over, *sprites, **kwargs):
+        super(GameScene, self).__init__(*sprites, **kwargs)
+        self.on_round = on_round
+        self.on_over = on_over
         # Init sounds
         self.sounds = {}
         for name in ['shoot', 'shoot2', 'invaderkilled', 'mysterykilled',
@@ -387,33 +462,8 @@ class SpaceInvaders(object):
             note.set_volume(0.5)
         self.musicNotesCycle = cycle(self.musicNotes)
 
-        self.caption = display.set_caption('Space Invaders')
-        self.screen = SCREEN
-        self.background = image.load(IMAGE_PATH + 'background.jpg').convert()
-        self.screenType = SCREEN_MAIN
         # Counter for enemy starting position (increased each new round)
         self.enemyPosition = ENEMY_DEFAULT_POSITION
-
-        self.mainScene = LayeredDirty(
-            Txt(FONT, 50, 'Space Invaders', WHITE, 164, 155),
-            Txt(FONT, 25, 'Press any key to continue', WHITE, 201, 225),
-            Img(318, 270, 'enemy3_1', 40, 40),
-            Txt(FONT, 25, '   =   10 pts', GREEN, 368, 270),
-            Img(318, 320, 'enemy2_2', 40, 40),
-            Txt(FONT, 25, '   =  20 pts', BLUE, 368, 320),
-            Img(318, 370, 'enemy1_2', 40, 40),
-            Txt(FONT, 25, '   =  30 pts', PURPLE, 368, 370),
-            Img(299, 420, 'mystery', 80, 40),
-            Txt(FONT, 25, '   =  ?????', RED, 368, 420),
-        )
-        self.mainScene.set_timing_treshold(1000.0 / 25.0)
-        self.mainScene.clear(self.screen, self.background)
-        self.gameOverTxt = Txt(FONT, 50, 'Game Over', WHITE, 250, 270)
-        self.nextRoundTxt = Txt(FONT, 50, 'Next Round', WHITE, 240, 270)
-
-        self.gameScene = LayeredDirty()
-        self.gameScene.set_timing_treshold(1000.0 / 25.0)
-        self.gameScene.clear(self.screen, self.background)
         self.bullets = Group()
         self.enemyBullets = Group()
         self.explosionsGroup = Group()
@@ -428,25 +478,6 @@ class SpaceInvaders(object):
         self.life2 = Img(742, 3, 'ship', 23, 23, self.dashGroup)
         self.life3 = Img(769, 3, 'ship', 23, 23, self.dashGroup)
 
-        self.clock = time.Clock()
-        if DEBUG:
-            self.fps = Txt(FONT, 12, "FPS: ", RED, 0, 587,
-                           self.mainScene, self.gameScene)
-
-    def reset(self):
-        for gr in (self.gameScene, self.playerGroup, self.explosionsGroup,
-                   self.bullets, self.mysteryGroup, self.enemyBullets):
-            gr.empty()
-        if DEBUG:
-            self.gameScene.add(self.fps)
-        self.gameScene.add(self.dashGroup, self.allBlockers)
-        self.player = Ship(self.gameScene, self.playerGroup)
-        self.make_enemies()
-        self.musicNotesCycle = cycle(self.musicNotes)
-        event.clear()
-        time.set_timer(EVENT_ENEMY_SHOOT, 700)
-        time.set_timer(EVENT_MYSTERY, 25000)
-
     def make_blockers(self):
         for offset in (50, 250, 450, 650):
             for row in range(4):
@@ -455,10 +486,26 @@ class SpaceInvaders(object):
                     y = BLOCKERS_POSITION + (row * 10)
                     Blocker(x, y, 10, GREEN, self.allBlockers)
 
-    @staticmethod
-    def should_exit(evt):
-        # type: (event.EventType) -> bool
-        return evt.type == QUIT or (evt.type == KEYUP and evt.key == K_ESCAPE)
+    def make_enemies(self):
+        self.enemies = EnemiesGroup(10, 5, self.enemyPosition)
+        for row in range(5):
+            for col in range(10):
+                x = 154 + (col * 50)
+                y = self.enemyPosition + (row * 45)
+                Enemy(x, y, row, col, self.enemies, self)
+
+    def reset(self):
+        for gr in (self, self.playerGroup, self.explosionsGroup,
+                   self.bullets, self.mysteryGroup, self.enemyBullets):
+            gr.empty()
+        if DEBUG:
+            self.add(self.fps)
+        self.add(self.dashGroup, self.allBlockers)
+        self.player = Ship(self, self.playerGroup)
+        self.make_enemies()
+        event.clear()
+        time.set_timer(EVENT_ENEMY_SHOOT, 700)
+        time.set_timer(EVENT_MYSTERY, 25000)
 
     def check_input(self):
         for e in event.get():
@@ -470,33 +517,24 @@ class SpaceInvaders(object):
                         y = self.player.rect.y + 5
                         if self.scoreTxt.msg < 1000:
                             Bullet(self.player.rect.x + 23, y, -15, 'laser',
-                                   self.bullets, self.gameScene)
+                                   self.bullets, self)
                             self.sounds['shoot'].play()
                         else:
                             Bullet(self.player.rect.x + 8, y, -15, 'laser',
-                                   self.bullets, self.gameScene)
+                                   self.bullets, self)
                             Bullet(self.player.rect.x + 38, y, -15, 'laser',
-                                   self.bullets, self.gameScene)
+                                   self.bullets, self)
                             self.sounds['shoot2'].play()
             elif e.type == EVENT_SHIP_CREATE:
-                self.player = Ship(self.gameScene, self.playerGroup)
+                self.player = Ship(self, self.playerGroup)
             elif e.type == EVENT_ENEMY_SHOOT and self.enemies:
                 enemy = self.enemies.random_bottom()
                 Bullet(enemy.rect.x + 14, enemy.rect.y + 20, 5, 'enemylaser',
-                       self.enemyBullets, self.gameScene)
+                       self.enemyBullets, self)
             elif e.type == EVENT_ENEMY_MOVE_NOTE:
                 self.musicNotesCycle.next().play()
             elif e.type == EVENT_MYSTERY:
-                Mystery(self.mysteryGroup, self.gameScene)
-
-    def make_enemies(self):
-        enemies = EnemiesGroup(10, 5)
-        for row in range(5):
-            for col in range(10):
-                x = 154 + (col * 50)
-                y = self.enemyPosition + (row * 45)
-                Enemy(x, y, row, col, enemies, self.gameScene)
-        self.enemies = enemies
+                Mystery(self.mysteryGroup, self)
 
     def check_collisions(self):
         groupcollide(self.bullets, self.enemyBullets, True, True)
@@ -505,15 +543,14 @@ class SpaceInvaders(object):
                                   True, True).keys():
             self.sounds['invaderkilled'].play()
             self.scoreTxt.msg += enemy.score
-            EnemyExplosion(enemy, self.explosionsGroup, self.gameScene)
-            self.gameTimer = time.get_ticks()
+            EnemyExplosion(enemy, self.explosionsGroup, self)
 
         for mystery in groupcollide(self.mysteryGroup, self.bullets,
                                     True, True).keys():
             mystery.mysteryEntered.stop()
             self.sounds['mysterykilled'].play()
             self.scoreTxt.msg += mystery.score
-            MysteryExplosion(mystery, self.explosionsGroup, self.gameScene)
+            MysteryExplosion(mystery, self.explosionsGroup, self)
             Mystery.velocity = 2  # Reset direction
 
         for playerShip in groupcollide(self.playerGroup, self.enemyBullets,
@@ -525,89 +562,93 @@ class SpaceInvaders(object):
             elif self.life1.alive():
                 self.life1.kill()
             else:
-                self.screenType = SCREEN_OVER
-                self.gameTimer = time.get_ticks()
+                self._game_over()
             self.sounds['shipexplosion'].play()
-            ShipExplosion(playerShip, self.explosionsGroup, self.gameScene)
+            ShipExplosion(playerShip, self.explosionsGroup, self)
 
         if self.enemies.bottom >= 540:
             groupcollide(self.enemies, self.playerGroup, True, True)
             if not self.player.alive() or self.enemies.bottom >= 600:
-                self.screenType = SCREEN_OVER
-                self.gameTimer = time.get_ticks()
+                self._game_over()
 
         groupcollide(self.bullets, self.allBlockers, True, True)
         groupcollide(self.enemyBullets, self.allBlockers, True, True)
         if self.enemies.bottom >= BLOCKERS_POSITION:
             groupcollide(self.enemies, self.allBlockers, False, True)
 
+    def update(self, current_time, *args):
+        if not self.enemies and not self.explosionsGroup:
+            self.on_round()
+        else:
+            self.enemies.update(current_time)
+            self.check_input()
+            self.check_collisions()
+        super(GameScene, self).update(current_time, *args)
+
+    def new_game(self):
+        # Only create blockers on a new game, not a new round
+        self.allBlockers.empty()
+        self.make_blockers()
+        self.scoreTxt.msg = 0
+        self.dashGroup.add(self.life1, self.life2, self.life3)
+        self.reset()
+
+    def new_round(self):
+        # Move enemies closer to bottom
+        self.enemyPosition += ENEMY_MOVE_DOWN
+        self.reset()
+
+    def _game_over(self):
+        # Reset enemy start position
+        self.enemyPosition = ENEMY_DEFAULT_POSITION
+        self.on_over()
+
+
+class SpaceInvaders(object):
+    def __init__(self):
+        # It seems, in Linux buffersize=512 is not enough, use 4096 to prevent:
+        #   ALSA lib pcm.c:7963:(snd_pcm_recover) underrun occurred
+        mixer.pre_init(44100, -16, 1, 4096)
+        init()
+        self.caption = display.set_caption('Space Invaders')
+
+        self.mainScene = MainScene(on_key_up=self.start_game)
+        self.gameScene = GameScene(on_round=self.show_round,
+                                   on_over=self.show_over)
+        self.clock = time.Clock()
+        self.scene = self.mainScene
+
+    def start_game(self):
+        self.gameScene.new_game()
+        self.scene = self.gameScene
+        self.scene.repaint_rect(SCREEN.get_rect())
+
+    def start_round(self):
+        self.gameScene.new_round()
+        self.scene = self.gameScene
+        self.scene.repaint_rect(SCREEN.get_rect())
+
+    def show_round(self):
+        self.scene = NextRoundScene(on_finish=self.start_round)
+
+    def show_over(self):
+        self.scene = GameOverScene(on_finish=self.show_main)
+
+    def show_main(self):
+        self.scene = self.mainScene
+        self.scene.repaint_rect(SCREEN.get_rect())
+
     def main(self):
-        scene = self.mainScene
-        scene.clear(self.screen, self.background)
         while True:
             # update all the sprites
             current_time = time.get_ticks()
             keys = key.get_pressed()
-
-            if self.screenType == SCREEN_MAIN:
-                for e in event.get():
-                    if self.should_exit(e):
-                        sys.exit()
-                    elif e.type == KEYUP:
-                        # Only create blockers on a new game, not a new round
-                        self.allBlockers.empty()
-                        self.make_blockers()
-                        self.scoreTxt.msg = 0
-                        self.dashGroup.add(self.life1, self.life2, self.life3)
-                        self.reset()
-                        self.screenType = SCREEN_GAME
-                        scene = self.gameScene
-                        scene.repaint_rect(self.screen.get_rect())
-
-            elif self.screenType == SCREEN_GAME:
-                if not self.enemies and not self.explosionsGroup:
-                    passed = current_time - self.gameTimer
-                    if self.nextRoundTxt not in self.gameScene:
-                        self.gameScene.add(self.nextRoundTxt, layer=255)
-                    if 3000 < passed:
-                        # Move enemies closer to bottom
-                        self.enemyPosition += ENEMY_MOVE_DOWN
-                        self.reset()
-                    for e in event.get():
-                        if self.should_exit(e):
-                            sys.exit()
-                else:
-                    self.enemies.update(current_time)
-                    self.check_input()
-                    self.check_collisions()
-
-            elif self.screenType == SCREEN_OVER:
-                passed = current_time - self.gameTimer
-                if self.gameOverTxt not in self.gameScene:
-                    self.gameScene.add(self.gameOverTxt, layer=255)
-                if 3000 < passed:
-                    # Reset enemy start position
-                    self.enemyPosition = ENEMY_DEFAULT_POSITION
-                    self.screenType = SCREEN_MAIN
-                    scene = self.mainScene
-                    scene.repaint_rect(self.screen.get_rect())
-                elif passed < 750 or 1500 < passed < 2250:
-                    if not self.gameOverTxt.visible:
-                        self.gameOverTxt.visible = True
-                else:
-                    if self.gameOverTxt.visible:
-                        self.gameOverTxt.visible = False
-
-                for e in event.get():
-                    if self.should_exit(e):
-                        sys.exit()
-
+            self.scene.update(current_time, keys)
             if DEBUG:
-                self.fps.msg = "FPS: " + str(int(self.clock.get_fps()))
-            scene.update(current_time, keys)
+                self.scene.fps.msg = "FPS: " + str(int(self.clock.get_fps()))
 
             # draw the scene
-            dirty = scene.draw(self.screen)
+            dirty = self.scene.draw(SCREEN)
             display.update(dirty)
             self.clock.tick(60)
 
