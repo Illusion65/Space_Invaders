@@ -98,22 +98,22 @@ class Txt(DirtySprite):
 class Img(DirtySprite):
     cache = {}
 
-    def __init__(self, x, y, filename, w, h, *groups):
+    def __init__(self, filename, x=0, y=0, w=0, h=0, *groups):
         super(Img, self).__init__(*groups)
         key_ = hash(filename) + hash(w) + hash(h)
         if key_ in Img.cache:
             self.image = Img.cache[key_]
         else:
-            self.image = transform.scale(IMAGES[filename], (w, h))
+            self.image = IMAGES[filename]
+            if w > 0 or h > 0:
+                self.image = transform.scale(self.image, (w, h))
             Img.cache[key_] = self.image
         self.rect = self.image.get_rect(topleft=(x, y))
 
 
-class Ship(DirtySprite):
+class Ship(Img):
     def __init__(self, *groups):
-        super(Ship, self).__init__(*groups)
-        self.image = IMAGES['ship']
-        self.rect = self.image.get_rect(topleft=(375, 540))
+        super(Ship, self).__init__('ship', 375, 540, 0, 0, *groups)
         self.timer = time.get_ticks()
 
     def update(self, current_time, keys, *args):
@@ -127,11 +127,9 @@ class Ship(DirtySprite):
                 self.dirty = 1
 
 
-class Bullet(DirtySprite):
+class Bullet(Img):
     def __init__(self, x, y, velocity, filename, *groups):
-        super(Bullet, self).__init__(*groups)
-        self.image = IMAGES[filename]
-        self.rect = self.image.get_rect(topleft=(x, y))
+        super(Bullet, self).__init__(filename, x, y, 0, 0, *groups)
         self.velocity = velocity
         self.timer = time.get_ticks()
 
@@ -146,28 +144,24 @@ class Bullet(DirtySprite):
 
 class Enemy(DirtySprite):
     row_scores = {0: 30, 1: 20, 2: 20, 3: 10, 4: 10}
-    row_images = {0: [transform.scale(IMAGES['enemy1_2'], (40, 35)),
-                      transform.scale(IMAGES['enemy1_1'], (40, 35))],
-                  1: [transform.scale(IMAGES['enemy2_2'], (40, 35)),
-                      transform.scale(IMAGES['enemy2_1'], (40, 35))],
-                  2: [transform.scale(IMAGES['enemy2_2'], (40, 35)),
-                      transform.scale(IMAGES['enemy2_1'], (40, 35))],
-                  3: [transform.scale(IMAGES['enemy3_1'], (40, 35)),
-                      transform.scale(IMAGES['enemy3_2'], (40, 35))],
-                  4: [transform.scale(IMAGES['enemy3_1'], (40, 35)),
-                      transform.scale(IMAGES['enemy3_2'], (40, 35))]}
+    row_images = {
+        0: [Img('enemy1_2', w=40, h=35), Img('enemy1_1', w=40, h=35)],
+        1: [Img('enemy2_2', w=40, h=35), Img('enemy2_1', w=40, h=35)],
+        2: [Img('enemy2_2', w=40, h=35), Img('enemy2_1', w=40, h=35)],
+        3: [Img('enemy3_1', w=40, h=35), Img('enemy3_2', w=40, h=35)],
+        4: [Img('enemy3_1', w=40, h=35), Img('enemy3_2', w=40, h=35)]}
 
     def __init__(self, x, y, row, column, *groups):
         self.row = row
         self.column = column
         super(Enemy, self).__init__(*groups)
         self.imagesCycle = cycle(Enemy.row_images[self.row])
-        self.image = next(self.imagesCycle)
+        self.image = next(self.imagesCycle).image
         self.rect = self.image.get_rect(topleft=(x, y))
         self.score = Enemy.row_scores[self.row]
 
     def toggle_image(self):
-        self.image = next(self.imagesCycle)
+        self.image = next(self.imagesCycle).image
         self.dirty = 1
 
 
@@ -272,14 +266,12 @@ class Blocker(DirtySprite):
         self.rect = self.image.get_rect(topleft=(x, y))
 
 
-class Mystery(DirtySprite):
+class Mystery(Img):
     velocity = 2
 
     def __init__(self, *groups):
-        super(Mystery, self).__init__(*groups)
-        self.image = transform.scale(IMAGES['mystery'], (75, 35))
         x = -80 if Mystery.velocity > 0 else 800
-        self.rect = self.image.get_rect(topleft=(x, 45))
+        super(Mystery, self).__init__('mystery', x, 45, 75, 35, *groups)
         self.mysteryEntered = Sound(SOUND_PATH + 'mysteryentered.wav')
         self.mysteryEntered.set_volume(0.3)
         self.mysteryEntered.play(fade_ms=1000)
@@ -300,12 +292,12 @@ class Mystery(DirtySprite):
         time.set_timer(EVENT_MYSTERY, 25000)
 
 
-class EnemyExplosion(DirtySprite):
+class EnemyExplosion(Img):
     def __init__(self, enemy, *groups):
-        super(EnemyExplosion, self).__init__(*groups)
-        self.image = transform.scale(self.get_image(enemy.row), (40, 35))
-        self.image2 = transform.scale(self.get_image(enemy.row), (50, 45))
-        self.rect = self.image.get_rect(topleft=(enemy.rect.x, enemy.rect.y))
+        super(EnemyExplosion, self).__init__(
+            self.get_image(enemy.row), enemy.rect.x, enemy.rect.y, 40, 35,
+            *groups)
+        self.image2 = Img(self.get_image(enemy.row), w=50, h=45).image
         self.rect2 = self.image2.get_rect(
             topleft=(enemy.rect.x - 6, enemy.rect.y - 6))
         self.timer = time.get_ticks()
@@ -313,7 +305,7 @@ class EnemyExplosion(DirtySprite):
     @staticmethod
     def get_image(row):
         img_colors = ['purple', 'blue', 'blue', 'green', 'green']
-        return IMAGES['explosion{}'.format(img_colors[row])]
+        return 'explosion{}'.format(img_colors[row])
 
     def update(self, current_time, *args):
         passed = current_time - self.timer
@@ -345,11 +337,10 @@ class MysteryExplosion(Txt):
             self.visible = False  # dirty = 1
 
 
-class ShipExplosion(DirtySprite):
+class ShipExplosion(Img):
     def __init__(self, ship, *groups):
-        super(ShipExplosion, self).__init__(*groups)
-        self.image = IMAGES['ship']
-        self.rect = self.image.get_rect(topleft=(ship.rect.x, ship.rect.y))
+        super(ShipExplosion, self).__init__(
+            'ship', ship.rect.x, ship.rect.y, 0, 0, *groups)
         self.timer = time.get_ticks()
 
     def update(self, current_time, *args):
@@ -385,13 +376,13 @@ class MainScene(EmptyScene):
         self.add(
             Txt(FONT, 50, 'Space Invaders', WHITE, 164, 155),
             Txt(FONT, 25, 'Press any key to continue', WHITE, 201, 225),
-            Img(318, 270, 'enemy3_1', 40, 40),
+            Img('enemy3_1', 318, 270, 40, 40),
             Txt(FONT, 25, '   =   10 pts', GREEN, 368, 270),
-            Img(318, 320, 'enemy2_2', 40, 40),
+            Img('enemy2_2', 318, 320, 40, 40),
             Txt(FONT, 25, '   =  20 pts', BLUE, 368, 320),
-            Img(318, 370, 'enemy1_2', 40, 40),
+            Img('enemy1_2', 318, 370, 40, 40),
             Txt(FONT, 25, '   =  30 pts', PURPLE, 368, 370),
-            Img(299, 420, 'mystery', 80, 40),
+            Img('mystery', 299, 420, 80, 40),
             Txt(FONT, 25, '   =  ?????', RED, 368, 420),
         )
 
@@ -471,9 +462,9 @@ class GameScene(EmptyScene):
         self.dashGroup = Group(Txt(FONT, 20, 'Score', WHITE, 5, 5),
                                Txt(FONT, 20, 'Lives ', WHITE, 640, 5))
         self.scoreTxt = Txt(FONT, 20, 0, GREEN, 85, 5, self.dashGroup)
-        self.life1 = Img(715, 3, 'ship', 23, 23, self.dashGroup)
-        self.life2 = Img(742, 3, 'ship', 23, 23, self.dashGroup)
-        self.life3 = Img(769, 3, 'ship', 23, 23, self.dashGroup)
+        self.life1 = Img('ship', 715, 3, 23, 23, self.dashGroup)
+        self.life2 = Img('ship', 742, 3, 23, 23, self.dashGroup)
+        self.life3 = Img('ship', 769, 3, 23, 23, self.dashGroup)
 
     def make_blockers(self):
         for offset in (50, 250, 450, 650):
