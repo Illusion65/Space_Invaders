@@ -149,7 +149,8 @@ class Enemy(DirtySprite):
         1: [Img('enemy2_2', w=40, h=35), Img('enemy2_1', w=40, h=35)],
         2: [Img('enemy2_2', w=40, h=35), Img('enemy2_1', w=40, h=35)],
         3: [Img('enemy3_1', w=40, h=35), Img('enemy3_2', w=40, h=35)],
-        4: [Img('enemy3_1', w=40, h=35), Img('enemy3_2', w=40, h=35)]}
+        4: [Img('enemy3_1', w=40, h=35), Img('enemy3_2', w=40, h=35)],
+    }
 
     def __init__(self, x, y, row, column, *groups):
         self.row = row
@@ -616,9 +617,11 @@ class SpaceInvaders(object):
 
     def show_round(self):
         self.scene = NextRoundScene(on_finish=self.start_round)
+        self.scene.add(self.gameScene.dashGroup)
 
     def show_over(self):
         self.scene = GameOverScene(on_finish=self.show_main)
+        self.scene.add(self.gameScene.dashGroup)
 
     def show_main(self):
         self.scene = self.mainScene
