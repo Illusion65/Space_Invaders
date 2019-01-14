@@ -64,7 +64,7 @@ class Txt(DirtySprite):
         self._size = size
         self._font = font_
         self._color = color_
-        self.image, self.rect = self.update_image()
+        self.image, self.rect = self._update_image()
 
     def _get_msg(self):
         return self._msg
@@ -72,12 +72,12 @@ class Txt(DirtySprite):
     def _set_msg(self, msg):
         if self._msg != msg:
             self._msg = msg
-            self.image, self.rect = self.update_image()
+            self.image, self.rect = self._update_image()
             self.dirty = 1
 
     msg = property(_get_msg, _set_msg, doc="Message Text")
 
-    def update_image(self):
+    def _update_image(self):
         font_key = hash(self._font) + hash(self._size)
         if font_key in Txt.font_cache:
             font_ = Txt.font_cache[font_key]
@@ -100,6 +100,9 @@ class Img(DirtySprite):
 
     def __init__(self, filename, x=0, y=0, w=0, h=0, *groups):
         super(Img, self).__init__(*groups)
+        self.update_image(filename, x, y, w, h)
+
+    def update_image(self, filename, x=0, y=0, w=0, h=0):
         key_ = hash(filename) + hash(w) + hash(h)
         if key_ in Img.cache:
             self.image = Img.cache[key_]
@@ -109,6 +112,7 @@ class Img(DirtySprite):
                 self.image = transform.scale(self.image, (w, h))
             Img.cache[key_] = self.image
         self.rect = self.image.get_rect(topleft=(x, y))
+        self.dirty = 1
 
 
 class Ship(Img):
@@ -142,28 +146,25 @@ class Bullet(Img):
             self.kill()
 
 
-class Enemy(DirtySprite):
+class Enemy(Img):
     row_scores = {0: 30, 1: 20, 2: 20, 3: 10, 4: 10}
-    row_images = {
-        0: [Img('enemy1_2', w=40, h=35), Img('enemy1_1', w=40, h=35)],
-        1: [Img('enemy2_2', w=40, h=35), Img('enemy2_1', w=40, h=35)],
-        2: [Img('enemy2_2', w=40, h=35), Img('enemy2_1', w=40, h=35)],
-        3: [Img('enemy3_1', w=40, h=35), Img('enemy3_2', w=40, h=35)],
-        4: [Img('enemy3_1', w=40, h=35), Img('enemy3_2', w=40, h=35)],
-    }
+    row_images = {0: ['enemy1_2', 'enemy1_1'],
+                  1: ['enemy2_2', 'enemy2_1'],
+                  2: ['enemy2_2', 'enemy2_1'],
+                  3: ['enemy3_1', 'enemy3_2'],
+                  4: ['enemy3_1', 'enemy3_2']}
 
     def __init__(self, x, y, row, column, *groups):
         self.row = row
         self.column = column
-        super(Enemy, self).__init__(*groups)
         self.imagesCycle = cycle(Enemy.row_images[self.row])
-        self.image = next(self.imagesCycle).image
-        self.rect = self.image.get_rect(topleft=(x, y))
+        super(Enemy, self).__init__(next(self.imagesCycle),
+                                    x, y, 40, 35, *groups)
         self.score = Enemy.row_scores[self.row]
 
     def toggle_image(self):
-        self.image = next(self.imagesCycle).image
-        self.dirty = 1
+        self.update_image(next(self.imagesCycle),
+                          self.rect.x, self.rect.y, 40, 35)
 
 
 class EnemiesGroup(Group):
@@ -294,27 +295,21 @@ class Mystery(Img):
 
 
 class EnemyExplosion(Img):
-    def __init__(self, enemy, *groups):
-        super(EnemyExplosion, self).__init__(
-            self.get_image(enemy.row), enemy.rect.x, enemy.rect.y, 40, 35,
-            *groups)
-        self.image2 = Img(self.get_image(enemy.row), w=50, h=45).image
-        self.rect2 = self.image2.get_rect(
-            topleft=(enemy.rect.x - 6, enemy.rect.y - 6))
-        self.timer = time.get_ticks()
+    row_colors = ['purple', 'blue', 'blue', 'green', 'green']
 
-    @staticmethod
-    def get_image(row):
-        img_colors = ['purple', 'blue', 'blue', 'green', 'green']
-        return 'explosion{}'.format(img_colors[row])
+    def __init__(self, enemy, *groups):
+        self._filename = 'explosion' + self.row_colors[enemy.row]
+        super(EnemyExplosion, self).__init__(
+            self._filename, enemy.rect.x, enemy.rect.y, 40, 35, *groups)
+        self.timer = time.get_ticks()
 
     def update(self, current_time, *args):
         passed = current_time - self.timer
-        if 100 < passed < 400 and self.image != self.image2:
-            self.image = self.image2
-            self.rect = self.rect2
-            self.dirty = 1
-        elif 400 < passed:
+        if 100 < passed <= 200 and self._filename:
+            self.update_image(
+                self._filename, self.rect.x - 6, self.rect.y - 6, 50, 45)
+            self._filename = None  # update_image once
+        elif 200 < passed:
             self.kill()
 
 
