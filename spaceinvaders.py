@@ -360,9 +360,9 @@ class EmptyScene(LayeredDirty):
             self.fps = Txt(FONT, 12, "FPS: ", RED, 0, 587, self)
 
     @staticmethod
-    def should_exit(evt):
-        # type: (event.EventType) -> bool
-        return evt.type == QUIT or (evt.type == KEYUP and evt.key == K_ESCAPE)
+    def process_event(evt):
+        if evt.type == QUIT or (evt.type == KEYUP and evt.key == K_ESCAPE):
+            sys.exit()
 
 
 class MainScene(EmptyScene):
@@ -382,13 +382,10 @@ class MainScene(EmptyScene):
             Txt(FONT, 25, '   =  ?????', RED, 368, 420),
         )
 
-    def update(self, *args):
-        super(MainScene, self).update(*args)
-        for e in event.get():
-            if self.should_exit(e):
-                sys.exit()
-            elif e.type == KEYUP:
-                self.on_key_up()
+    def process_event(self, evt):
+        super(MainScene, self).process_event(evt)
+        if evt.type == KEYUP:
+            self.on_key_up()
 
 
 class NextRoundScene(EmptyScene):
@@ -399,9 +396,6 @@ class NextRoundScene(EmptyScene):
 
     def update(self, current_time, *args):
         super(NextRoundScene, self).update(current_time, *args)
-        for e in event.get():
-            if self.should_exit(e):
-                sys.exit()
         passed = current_time - self.timer
         if 3000 < passed:
             self.on_finish()
@@ -415,9 +409,6 @@ class GameOverScene(EmptyScene):
 
     def update(self, current_time, *args):
         super(GameOverScene, self).update(current_time, *args)
-        for e in event.get():
-            if self.should_exit(e):
-                sys.exit()
         passed = current_time - self.timer
         if 3000 < passed:
             self.on_finish()
@@ -491,34 +482,31 @@ class GameScene(EmptyScene):
         time.set_timer(EVENT_ENEMY_SHOOT, 700)
         time.set_timer(EVENT_MYSTERY, 25000)
 
-    def check_input(self):
-        for e in event.get():
-            if self.should_exit(e):
-                sys.exit()
-            elif e.type == KEYDOWN:
-                if e.key == K_SPACE:
-                    if not self.bullets and self.player.alive():
-                        y = self.player.rect.y + 5
-                        if self.scoreTxt.msg < 1000:
-                            Bullet(self.player.rect.x + 23, y, -15, 'laser',
-                                   self.bullets, self)
-                            self.sounds['shoot'].play()
-                        else:
-                            Bullet(self.player.rect.x + 8, y, -15, 'laser',
-                                   self.bullets, self)
-                            Bullet(self.player.rect.x + 38, y, -15, 'laser',
-                                   self.bullets, self)
-                            self.sounds['shoot2'].play()
-            elif e.type == EVENT_SHIP_CREATE:
-                self.player = Ship(self, self.players)
-            elif e.type == EVENT_ENEMY_SHOOT and self.enemies:
-                enemy = self.enemies.random_bottom()
-                Bullet(enemy.rect.x + 14, enemy.rect.y + 20, 5, 'enemylaser',
-                       self.enemyBullets, self)
-            elif e.type == EVENT_ENEMY_MOVE_NOTE:
-                next(self.musicNotesCycle).play()
-            elif e.type == EVENT_MYSTERY:
-                Mystery(self.mysteries, self)
+    def process_event(self, evt):
+        super(GameScene, self).process_event(evt)
+        if evt.type == KEYDOWN and evt.key == K_SPACE:
+            if not self.bullets and self.player.alive():
+                y = self.player.rect.y + 5
+                if self.scoreTxt.msg < 1000:
+                    Bullet(self.player.rect.x + 23, y, -15, 'laser',
+                           self.bullets, self)
+                    self.sounds['shoot'].play()
+                else:
+                    Bullet(self.player.rect.x + 8, y, -15, 'laser',
+                           self.bullets, self)
+                    Bullet(self.player.rect.x + 38, y, -15, 'laser',
+                           self.bullets, self)
+                    self.sounds['shoot2'].play()
+        elif evt.type == EVENT_SHIP_CREATE:
+            self.player = Ship(self, self.players)
+        elif evt.type == EVENT_ENEMY_SHOOT and self.enemies:
+            enemy = self.enemies.random_bottom()
+            Bullet(enemy.rect.x + 14, enemy.rect.y + 20, 5, 'enemylaser',
+                   self.enemyBullets, self)
+        elif evt.type == EVENT_ENEMY_MOVE_NOTE:
+            next(self.musicNotesCycle).play()
+        elif evt.type == EVENT_MYSTERY:
+            Mystery(self.mysteries, self)
 
     def check_collisions(self):
         groupcollide(self.bullets, self.enemyBullets, True, True)
@@ -567,14 +555,13 @@ class GameScene(EmptyScene):
             groupcollide(self.enemies, self.blockers, False, True)
 
     def update(self, current_time, *args):
+        super(GameScene, self).update(current_time, *args)
         if any((self.enemies, self.explosions,
                 self.mysteries, self.enemyBullets)):
             self.enemies.update(current_time)
-            self.check_input()
             self.check_collisions()
         else:
             self.on_round()
-        super(GameScene, self).update(current_time, *args)
 
     def new_game(self):
         # Reset enemy start position
@@ -630,6 +617,9 @@ class SpaceInvaders(object):
 
     def main(self):
         while True:
+            for evt in event.get():
+                self.scene.process_event(evt)
+
             # Update all the sprites
             current_time = time.get_ticks()
             keys = key.get_pressed()
