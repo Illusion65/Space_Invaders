@@ -453,7 +453,7 @@ class GameScene(EmptyScene):
         self.explosions = Group()
         self.players = Group()
         self.mysteries = Group()
-        self.allBlockers = Group()
+        self.blockers = Group()
 
         self.dashGroup = Group(Txt(FONT, 20, 'Score', WHITE, 5, 5),
                                Txt(FONT, 20, 'Lives ', WHITE, 640, 5))
@@ -468,7 +468,7 @@ class GameScene(EmptyScene):
                 for column in range(9):
                     x = offset + (column * 10)
                     y = BLOCKERS_POSITION + (row * 10)
-                    Blocker(x, y, 10, GREEN, self.allBlockers)
+                    Blocker(x, y, 10, GREEN, self.blockers)
 
     def make_enemies(self):
         self.enemies = EnemiesGroup(10, 5, self.enemyPosition)
@@ -484,7 +484,7 @@ class GameScene(EmptyScene):
             gr.empty()
         if DEBUG:
             self.add(self.fps)
-        self.add(self.dashGroup, self.allBlockers)
+        self.add(self.dashGroup, self.blockers)
         self.player = Ship(self, self.players)
         self.make_enemies()
         event.clear()
@@ -555,10 +555,16 @@ class GameScene(EmptyScene):
             if not self.player.alive() or self.enemies.bottom >= 600:
                 self.on_over()
 
-        groupcollide(self.bullets, self.allBlockers, True, True)
-        groupcollide(self.enemyBullets, self.allBlockers, True, True)
+        for _, blockers in groupcollide(self.bullets, self.blockers,
+                                        True, False).items():
+            max(blockers, key=lambda b: b.rect.bottom).kill()
+
+        for _, blockers in groupcollide(self.enemyBullets, self.blockers,
+                                        True, False).items():
+            min(blockers, key=lambda b: b.rect.top).kill()
+
         if self.enemies.bottom >= BLOCKERS_POSITION:
-            groupcollide(self.enemies, self.allBlockers, False, True)
+            groupcollide(self.enemies, self.blockers, False, True)
 
     def update(self, current_time, *args):
         if any((self.enemies, self.explosions,
@@ -574,7 +580,7 @@ class GameScene(EmptyScene):
         # Reset enemy start position
         self.enemyPosition = ENEMY_DEFAULT_POSITION
         # Only create blockers on a new game, not a new round
-        self.allBlockers.empty()
+        self.blockers.empty()
         self.make_blockers()
         self.scoreTxt.msg = 0
         self.dashGroup.add(self.life1, self.life2, self.life3)
