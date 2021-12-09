@@ -487,11 +487,11 @@ class GameScene(EmptyScene):
         if evt.type == KEYDOWN and evt.key == K_SPACE:
             if not self.bullets and self.player.alive():
                 y = self.player.rect.y + 5
-                if self.scoreTxt.msg < 1000:
+                if self.scoreTxt.msg < 1000 or self.scoreTxt.msg >= 3000:
                     Bullet(self.player.rect.x + 23, y, -15, 'laser',
                            self.bullets, self)
                     self.sounds['shoot'].play()
-                else:
+                if self.scoreTxt.msg >= 1000:
                     Bullet(self.player.rect.x + 8, y, -15, 'laser',
                            self.bullets, self)
                     Bullet(self.player.rect.x + 38, y, -15, 'laser',
