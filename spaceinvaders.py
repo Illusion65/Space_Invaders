@@ -11,7 +11,7 @@ from random import choice
 from pygame import display, event, font, image, init, key, \
     mixer, time, transform, Surface
 from pygame.constants import QUIT, KEYDOWN, KEYUP, USEREVENT, \
-    K_ESCAPE, K_LEFT, K_RIGHT, K_SPACE
+    K_ESCAPE, K_LEFT, K_RIGHT, K_SPACE, K_b
 from pygame.event import Event
 from pygame.mixer import Sound
 from pygame.sprite import groupcollide, Group, DirtySprite, LayeredDirty
@@ -439,6 +439,7 @@ class GameScene(EmptyScene):
 
         # Counter for enemy starting position (increased each new round)
         self.enemyPosition = ENEMY_DEFAULT_POSITION
+        self.erode_blockers = True  # Like original game, enemy bullets will erode blockers/shelters
         self.bullets = Group()
         self.enemyBullets = Group()
         self.explosions = Group()
@@ -484,19 +485,22 @@ class GameScene(EmptyScene):
 
     def process_event(self, evt):
         super(GameScene, self).process_event(evt)
-        if evt.type == KEYDOWN and evt.key == K_SPACE:
-            if not self.bullets and self.player.alive():
-                y = self.player.rect.y + 5
-                if self.scoreTxt.msg < 1000 or self.scoreTxt.msg >= 3000:
-                    Bullet(self.player.rect.x + 23, y, -15, 'laser',
-                           self.bullets, self)
-                    self.sounds['shoot'].play()
-                if self.scoreTxt.msg >= 1000:
-                    Bullet(self.player.rect.x + 8, y, -15, 'laser',
-                           self.bullets, self)
-                    Bullet(self.player.rect.x + 38, y, -15, 'laser',
-                           self.bullets, self)
-                    self.sounds['shoot2'].play()
+        if evt.type == KEYDOWN:
+            if evt.key == K_SPACE:
+                if not self.bullets and self.player.alive():
+                    y = self.player.rect.y + 5
+                    if self.scoreTxt.msg < 1000 or self.scoreTxt.msg >= 3000:
+                        Bullet(self.player.rect.x + 23, y, -15, 'laser',
+                            self.bullets, self)
+                        self.sounds['shoot'].play()
+                    if self.scoreTxt.msg >= 1000:
+                        Bullet(self.player.rect.x + 8, y, -15, 'laser',
+                            self.bullets, self)
+                        Bullet(self.player.rect.x + 38, y, -15, 'laser',
+                            self.bullets, self)
+                        self.sounds['shoot2'].play()
+            if evt.key == K_b:  # "b" key toggles whether enemy bullets remove bits of blockers/shelters
+                self.erode_blockers = not self.erode_blockers
         elif evt.type == EVENT_SHIP_CREATE:
             self.player = Ship(self, self.players)
         elif evt.type == EVENT_ENEMY_SHOOT and self.enemies:
@@ -549,7 +553,8 @@ class GameScene(EmptyScene):
 
         for _, blockers in groupcollide(self.enemyBullets, self.blockers,
                                         True, False).items():
-            min(blockers, key=lambda b: b.rect.top).kill()
+            if self.erode_blockers:
+                min(blockers, key=lambda b: b.rect.top).kill()
 
         if self.enemies.bottom >= BLOCKERS_POSITION:
             groupcollide(self.enemies, self.blockers, False, True)
