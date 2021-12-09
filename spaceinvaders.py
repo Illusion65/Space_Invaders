@@ -43,6 +43,7 @@ IMG_NAMES = ['ship', 'mystery',
 IMAGES = {name: image.load(IMAGE_PATH + '{}.png'.format(name)).convert_alpha()
           for name in IMG_NAMES}
 
+NEW_LIFE_POINT_INTERVAL = 2500  # Add new life, if one already lost, every multiple of this number of points
 BLOCKERS_POSITION = 450
 ENEMY_DEFAULT_POSITION = 65  # Initial value for a new game
 ENEMY_MOVE_DOWN = 35
@@ -519,6 +520,8 @@ class GameScene(EmptyScene):
                                   True, True).keys():
             self.sounds['invaderkilled'].play()
             self.scoreTxt.msg += enemy.score
+            if self.scoreTxt.msg % NEW_LIFE_POINT_INTERVAL < enemy.score:
+                self.add_life()  # Enough points for new life!
             EnemyExplosion(enemy, self.explosions, self)
 
         for mystery in groupcollide(self.mysteries, self.bullets,
@@ -526,6 +529,8 @@ class GameScene(EmptyScene):
             mystery.mysteryEntered.stop()
             self.sounds['mysterykilled'].play()
             self.scoreTxt.msg += mystery.score
+            if self.scoreTxt.msg % NEW_LIFE_POINT_INTERVAL < mystery.score:
+                self.add_life()  # Enough points for new life!
             MysteryExplosion(mystery, self.explosions, self)
             Mystery.velocity = 2  # Reset direction
 
@@ -558,6 +563,16 @@ class GameScene(EmptyScene):
 
         if self.enemies.bottom >= BLOCKERS_POSITION:
             groupcollide(self.enemies, self.blockers, False, True)
+
+    def add_life(self):
+        life = None
+        if not self.life1.alive(): life = self.life1
+        elif not self.life2.alive(): life = self.life2
+        elif not self.life3.alive(): life = self.life3
+        if life:
+            life.dirty = 1
+            self.add(life)
+            self.dashGroup.add(life)
 
     def update(self, current_time, *args):
         super(GameScene, self).update(current_time, *args)
