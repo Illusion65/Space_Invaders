@@ -504,6 +504,8 @@ class GameScene(EmptyScene):
                 self.erode_blockers = not self.erode_blockers
         elif evt.type == EVENT_SHIP_CREATE:
             self.player = Ship(self, self.players)
+            for bullet in self.enemyBullets:
+                bullet.kill()
         elif evt.type == EVENT_ENEMY_SHOOT and self.enemies:
             enemy = self.enemies.random_bottom()
             Bullet(enemy.rect.x + 14, enemy.rect.y + 20, 5, 'enemylaser',
